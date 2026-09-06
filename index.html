@@ -99,7 +99,9 @@
   .live button:hover{color:var(--ink)}
   .live button:focus-visible{outline:2px solid var(--soft);outline-offset:3px}
   .live.bad{border-color:#4A2A38}
-  .dev{border-top:1px dashed var(--line);margin-top:40px;padding-top:18px}
+  .live.test{border-color:#4A3F2A;color:var(--amber)}
+  .live.test b{color:var(--amber)}
+  .dev{display:none;border-top:1px dashed var(--line);margin-top:40px;padding-top:18px}
   .dev h2{font-size:12px;font-weight:500;color:var(--faint);margin:0 0 3px}
   .dev>p{font-size:12px;color:var(--faint);margin:0 0 14px;line-height:1.5}
   .sl{margin-bottom:12px}
@@ -127,7 +129,7 @@
   </div>
   <div id="view"></div>
 
-  <div class="dev">
+  <div class="dev" id="dev">
     <h2>Panel podglądu</h2>
     <p>Daty, godziny, księżyc, radianty rojów — liczone naprawdę. Kp i chmury wymagają sieci, więc są na suwakach.</p>
     <input type="date" id="date">
@@ -457,12 +459,17 @@ async function loadLive(){
     if(i<0) i=wx.hourly.time.findIndex(t=>t>=key);
     if(i<0) i=0;
 
-    if(kp!=null) document.getElementById('kp').value=kp;
-    document.getElementById('lo').value=wx.hourly.cloud_cover_low[i] ?? 40;
-    document.getElementById('hi').value=wx.hourly.cloud_cover_high[i] ?? 45;
+    if(kp!=null && !('kp' in OVERRIDE)) document.getElementById('kp').value=kp;
+    if(!('lo' in OVERRIDE)) document.getElementById('lo').value=wx.hourly.cloud_cover_low[i] ?? 40;
+    if(!('hi' in OVERRIDE)) document.getElementById('hi').value=wx.hourly.cloud_cover_high[i] ?? 45;
 
-    txt.textContent='Dane na '+String(cel.getHours()).padStart(2,'0')+':00 — '+
-      'Kp z NOAA, chmury z Open-Meteo';
+    if(Object.keys(OVERRIDE).length){
+      box.classList.add('test');
+      txt.textContent='Tryb testowy — wartości z adresu: '+Object.keys(OVERRIDE).join(', ');
+    } else {
+      txt.textContent='Dane na '+String(cel.getHours()).padStart(2,'0')+':00 — '+
+        'Kp z NOAA, chmury z Open-Meteo';
+    }
     draw();
   }catch(err){
     box.classList.add('bad');
@@ -488,9 +495,21 @@ function draw(){
       S={view:'list',id:null}; draw(); window.scrollTo(0,0);});
   }
 }
+/* Parametry w adresie wymuszają wartości i odsłaniają panel testowy:
+   ?kp=7.3&lo=10&hi=40&date=2026-08-12  albo samo ?debug=1
+   Dla zwykłego użytkownika panel nie istnieje. */
+const Q=new URLSearchParams(location.search);
+const OVERRIDE={};
+['kp','lo','hi'].forEach(k=>{ if(Q.has(k)) OVERRIDE[k]=Q.get(k); });
+const TESTMODE = Q.has('debug') || Object.keys(OVERRIDE).length>0 || Q.has('date');
+
 const t=new Date();
 document.getElementById('date').value=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
 ['date','kp','lo','hi'].forEach(id=>document.getElementById(id).addEventListener('input',draw));
+if(Q.has('date')) document.getElementById('date').value=Q.get('date');
+Object.entries(OVERRIDE).forEach(([k,v])=>{document.getElementById(k).value=v;});
+if(TESTMODE) document.getElementById('dev').style.display='block';
+
 document.getElementById('live-btn').addEventListener('click',loadLive);
 document.getElementById('date').addEventListener('change',loadLive);
 draw();
