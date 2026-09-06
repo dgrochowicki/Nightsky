@@ -424,57 +424,106 @@ function renderYear(m){
 
 /* ================= dane na żywo ================= */
 /* Dwie rzeczy wymagają sieci: aktywność geomagnetyczna i chmury.
-   Reszta liczy się lokalnie, więc strona jest użyteczna także wtedy,
-   gdy to zapytanie padnie. */
+   Reszta liczy się lokalnie, więc strona działa także wtedy, gdy to padnie.
+   Każde źródło pobierane osobno — awaria jednego nie blokuje drugiego. */
+
+const KP_SOURCES=[
+  'https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json',
+  'https://services.swpc.noaa.gov/products/noaa-planetary-k-index.json',
+  'https://services.swpc.noaa.gov/json/planetary_k_index_1m.json'
+];
+
+/* NOAA podaje te dane w kilku kształtach — raz tablice tablic z wierszem
+   nagłówka, raz tablice obiektów. Parser przyjmuje jedno i drugie. */
+function parseKp(data){
+  const out=[];
+  if(!Array.isArray(data)) return out;
+  for(const row of data){
+    let ts=null, kp=NaN;
+    if(Array.isArray(row)){ ts=row[0]; kp=parseFloat(row[1]); }
+    else if(row && typeof row==='object'){
+      ts = row.time_tag ?? row.time ?? null;
+      kp = parseFloat(row.kp_index ?? row.estimated_kp ?? row.kp);
+    }
+    if(typeof ts!=='string' || !isFinite(kp)) continue;   // pomija nagłówek
+    let iso=ts.replace(' ','T');
+    if(!/[Zz]$|[+-]\d\d:?\d\d$/.test(iso)) iso+='Z';
+    const t=new Date(iso);
+    if(!isNaN(t)) out.push({t,kp});
+  }
+  return out;
+}
+
+async function fetchKp(){
+  let last='brak źródeł';
+  for(const url of KP_SOURCES){
+    try{
+      const r=await fetch(url);
+      if(!r.ok) throw new Error(r.status);
+      const rows=parseKp(await r.json());
+      if(rows.length) return rows;
+      last='pusta odpowiedź';
+    }catch(err){ last=err.message; }
+  }
+  throw new Error('NOAA: '+last);
+}
+
+async function fetchChmury(cel){
+  const r=await fetch('https://api.open-meteo.com/v1/forecast?latitude='+LAT+'&longitude='+LON+
+    '&hourly=cloud_cover_low,cloud_cover_high&forecast_days=3&timezone=auto');
+  if(!r.ok) throw new Error('Open-Meteo: '+r.status);
+  const wx=await r.json();
+  if(!wx.hourly || !Array.isArray(wx.hourly.time)) throw new Error('Open-Meteo: zły format');
+  const key=cel.getFullYear()+'-'+String(cel.getMonth()+1).padStart(2,'0')+'-'+
+            String(cel.getDate()).padStart(2,'0')+'T'+String(cel.getHours()).padStart(2,'0')+':00';
+  let i=wx.hourly.time.indexOf(key);
+  if(i<0) i=wx.hourly.time.findIndex(t=>t>=key);
+  if(i<0) i=0;
+  return {lo:wx.hourly.cloud_cover_low[i], hi:wx.hourly.cloud_cover_high[i]};
+}
+
 async function loadLive(){
   const box=document.getElementById('live'), txt=document.getElementById('live-txt');
-  box.classList.remove('bad'); txt.textContent='Pobieram dane…';
+  box.classList.remove('bad','test');
+  txt.textContent='Pobieram dane…';
 
   const base=new Date(document.getElementById('date').value+'T12:00:00');
-  // celujemy w godzinę zmierzchu astronomicznego, nie w „teraz" —
-  // aplikacja odpowiada na pytanie o tę noc, nie o tę minutę
+  /* celujemy w godzinę zmierzchu astronomicznego, nie w „teraz" —
+     aplikacja odpowiada na pytanie o tę noc, nie o tę minutę */
   const cel = cross(base,sunAlt,-18,-1) || cross(base,sunAlt,-12,-1)
-              || new Date(base.getFullYear(),base.getMonth(),base.getDate(),22,0);
+            || new Date(base.getFullYear(),base.getMonth(),base.getDate(),22,0);
 
-  try{
-    const [kpRows,wx]=await Promise.all([
-      fetch('https://services.swpc.noaa.gov/products/noaa-planetary-k-index-forecast.json')
-        .then(r=>{if(!r.ok)throw new Error('NOAA '+r.status);return r.json();}),
-      fetch('https://api.open-meteo.com/v1/forecast?latitude='+LAT+'&longitude='+LON+
-            '&hourly=cloud_cover_low,cloud_cover_high&forecast_days=3&timezone=auto')
-        .then(r=>{if(!r.ok)throw new Error('Open-Meteo '+r.status);return r.json();})
-    ]);
+  const [kpRes, clRes] = await Promise.allSettled([fetchKp(), fetchChmury(cel)]);
+  const ok=[], bad=[];
 
-    // Kp: prognoza w koszykach 3-godzinnych, bierzemy koszyk obejmujący zmierzch
-    const kpy=kpRows.slice(1)
-      .map(r=>({t:new Date(r[0].replace(' ','T')+'Z'), kp:parseFloat(r[1])}))
-      .filter(x=>!isNaN(x.kp));
+  if(kpRes.status==='fulfilled'){
     let kp=null, dt=Infinity;
-    for(const x of kpy){const d=Math.abs(x.t-cel); if(d<dt){dt=d; kp=x.kp;}}
-
-    // chmury: prognoza godzinowa, ta sama godzina co wyżej
-    const key=cel.getFullYear()+'-'+String(cel.getMonth()+1).padStart(2,'0')+'-'+
-              String(cel.getDate()).padStart(2,'0')+'T'+String(cel.getHours()).padStart(2,'0')+':00';
-    let i=wx.hourly.time.indexOf(key);
-    if(i<0) i=wx.hourly.time.findIndex(t=>t>=key);
-    if(i<0) i=0;
-
+    for(const x of kpRes.value){ const d=Math.abs(x.t-cel); if(d<dt){dt=d; kp=x.kp;} }
     if(kp!=null && !('kp' in OVERRIDE)) document.getElementById('kp').value=kp;
-    if(!('lo' in OVERRIDE)) document.getElementById('lo').value=wx.hourly.cloud_cover_low[i] ?? 40;
-    if(!('hi' in OVERRIDE)) document.getElementById('hi').value=wx.hourly.cloud_cover_high[i] ?? 45;
+    ok.push('Kp '+(kp!=null?kp.toFixed(1):'?'));
+  } else bad.push(kpRes.reason.message);
 
-    if(Object.keys(OVERRIDE).length){
-      box.classList.add('test');
-      txt.textContent='Tryb testowy — wartości z adresu: '+Object.keys(OVERRIDE).join(', ');
-    } else {
-      txt.textContent='Dane na '+String(cel.getHours()).padStart(2,'0')+':00 — '+
-        'Kp z NOAA, chmury z Open-Meteo';
-    }
-    draw();
-  }catch(err){
+  if(clRes.status==='fulfilled'){
+    if(!('lo' in OVERRIDE)) document.getElementById('lo').value=clRes.value.lo ?? 40;
+    if(!('hi' in OVERRIDE)) document.getElementById('hi').value=clRes.value.hi ?? 45;
+    ok.push('chmury '+(clRes.value.lo ?? '?')+'% / '+(clRes.value.hi ?? '?')+'%');
+  } else bad.push(clRes.reason.message);
+
+  const godz=String(cel.getHours()).padStart(2,'0')+':00';
+  if(Object.keys(OVERRIDE).length){
+    box.classList.add('test');
+    txt.textContent='Tryb testowy — z adresu: '+Object.keys(OVERRIDE).join(', ')+
+      (ok.length?' · reszta na żywo':'');
+  } else if(bad.length && !ok.length){
     box.classList.add('bad');
-    txt.textContent='Nie udało się pobrać danych ('+err.message+'). Reszta działa — suwaki poniżej.';
+    txt.textContent='Brak danych na żywo ('+bad.join('; ')+'). Godziny, księżyc i roje działają dalej.';
+  } else if(bad.length){
+    box.classList.add('bad');
+    txt.textContent='Częściowe dane na '+godz+' — '+ok.join(', ')+'. Nie wyszło: '+bad.join('; ');
+  } else {
+    txt.textContent='Dane na '+godz+' — '+ok.join(', ');
   }
+  draw();
 }
 
 /* ================= router ================= */
