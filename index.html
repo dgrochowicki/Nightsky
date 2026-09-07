@@ -19,6 +19,24 @@
   .head h1{font-family:"Newsreader",Georgia,serif;font-weight:400;font-size:28px;
     letter-spacing:-.015em;margin:0 0 2px;line-height:1.15}
   .head p{margin:0 0 24px;font-size:13px;color:var(--faint)}
+  .locbtn{background:none;border:none;color:var(--faint);font:inherit;font-size:13px;
+    padding:0;margin-left:9px;cursor:pointer;border-bottom:1px solid var(--line)}
+  .locbtn:hover{color:var(--soft)}
+  .locbtn:focus-visible{outline:2px solid var(--soft);outline-offset:3px}
+  .locsearch{background:var(--card);border:1px solid var(--line);border-radius:11px;
+    padding:12px;margin:14px 0 0}
+  .locsearch input{width:100%;background:#1C2434;border:1px solid var(--line);color:var(--ink);
+    font:inherit;font-size:14px;padding:9px 11px;border-radius:8px;margin-bottom:9px}
+  .locsearch input:focus{outline:2px solid var(--soft);outline-offset:1px}
+  .locsearch .r{display:block;width:100%;text-align:left;background:none;border:none;
+    color:var(--ink);font:inherit;font-size:14px;padding:8px 4px;cursor:pointer;
+    border-bottom:1px solid var(--line)}
+  .locsearch .r:last-child{border-bottom:none}
+  .locsearch .r:hover{color:var(--green)}
+  .locsearch .r small{display:block;color:var(--faint);font-size:12px}
+  .locsearch .gps{width:100%;background:#1C2434;border:1px solid var(--line);color:var(--soft);
+    font:inherit;font-size:13px;padding:9px;border-radius:8px;cursor:pointer;margin-bottom:9px}
+  .locsearch .gps:hover{border-color:var(--soft);color:var(--ink)}
   .lede{font-family:"Newsreader",Georgia,serif;font-size:20px;font-weight:300;line-height:1.42;
     margin:0 0 26px;padding-bottom:22px;border-bottom:1px solid var(--line);max-width:30ch}
 
@@ -92,7 +110,7 @@
   /* ---- panel ---- */
   .live{display:flex;justify-content:space-between;align-items:center;gap:12px;
     background:var(--card);border:1px solid var(--line);border-radius:10px;
-    padding:9px 12px;margin-bottom:18px;font-size:12.5px;color:var(--faint)}
+    padding:9px 12px;margin-top:30px;font-size:12.5px;color:var(--faint)}
   .live b{font-weight:400;color:var(--soft)}
   .live button{background:none;border:none;color:var(--soft);font:inherit;font-size:12.5px;
     cursor:pointer;border-bottom:1px solid var(--line);padding:0}
@@ -123,11 +141,12 @@
 </head>
 <body>
 <div class="app">
+  <div id="view"></div>
+
   <div class="live" id="live">
     <b id="live-txt">Pobieram dane…</b>
     <button id="live-btn">odśwież</button>
   </div>
-  <div id="view"></div>
 
   <div class="dev" id="dev">
     <h2>Panel podglądu</h2>
@@ -149,7 +168,16 @@ const toDays=d=>d.valueOf()/dayMs-0.5+J1970-J2000;
 const RA=(l,b)=>Math.atan2(Math.sin(l)*Math.cos(ecl)-Math.tan(b)*Math.sin(ecl),Math.cos(l));
 const DC=(l,b)=>Math.asin(Math.sin(b)*Math.cos(ecl)+Math.cos(b)*Math.sin(ecl)*Math.sin(l));
 const sid=(d,lw)=>rad*(280.16+360.9856235*d)-lw;
-const LAT=53.4285,LON=14.5528,LW=rad*-LON,PHI=rad*LAT;
+let LAT=53.4285, LON=14.5528, PLACE='Szczecin', LW=rad*-LON, PHI=rad*LAT, MAGLAT, KP_NEEDED;
+function setLoc(lat,lon,name){
+  LAT=lat; LON=lon; PLACE=name||(lat.toFixed(2)+', '+lon.toFixed(2));
+  LW=rad*-LON; PHI=rad*LAT;
+  const pLa=80.65*rad, pLo=-72.68*rad;
+  MAGLAT=Math.asin(Math.sin(LAT*rad)*Math.sin(pLa)+
+    Math.cos(LAT*rad)*Math.cos(pLa)*Math.cos(LON*rad-pLo))/rad;
+  KP_NEEDED=(66.5-MAGLAT)/2.05;
+  try{ localStorage.setItem('nightsky.loc', JSON.stringify({lat,lon,name:PLACE})); }catch(e){}
+}
 const altOf=(H,dc)=>Math.asin(Math.sin(PHI)*Math.sin(dc)+Math.cos(PHI)*Math.cos(dc)*Math.cos(H))/rad;
 const aziOf=(H,dc)=>(Math.atan2(Math.sin(H),Math.cos(H)*Math.sin(PHI)-Math.tan(dc)*Math.cos(PHI))/rad+180)%360;
 function sunC(d){const M=rad*(357.5291+0.98560028*d);
@@ -166,9 +194,7 @@ function moonIllum(t){const d=toDays(t),m=moonC(d),s=sunC(d),sd=149598000;
   return (1+Math.cos(Math.atan2(sd*Math.sin(ph),m.dist-sd*Math.cos(ph))))/2;}
 function objAlt(t,raH,decD){const d=toDays(t);
   return altOf(sid(d,LW)-raH*15*rad, decD*rad);}
-const MAGLAT=(()=>{const pLa=80.65*rad,pLo=-72.68*rad;
-  return Math.asin(Math.sin(LAT*rad)*Math.sin(pLa)+Math.cos(LAT*rad)*Math.cos(pLa)*Math.cos(LON*rad-pLo))/rad;})();
-const KP_NEEDED=(66.5-MAGLAT)/2.05;
+setLoc(LAT,LON,PLACE);
 
 function cross(base,fn,target,dir){
   const s=new Date(base);s.setHours(12,0,0,0);let p=fn(s);
@@ -231,7 +257,7 @@ function renderList(m){
 
   const ev=[];
   if(zorzaOn) ev.push({t:m.zmA,id:'zorza',h:'Zorza polarna',c:'var(--green)',
-    tag:['w zasięgu','var(--green)'],p:'Kp '+m.kp.toFixed(1)+', próg dla Szczecina to '+KP_NEEDED.toFixed(1)+'.'});
+    tag:['w zasięgu','var(--green)'],p:'Kp '+m.kp.toFixed(1)+', próg dla tej lokalizacji to '+KP_NEEDED.toFixed(1)+'.'});
   ev.push({t:m.zachod,id:'zachod',h:'Zachód słońca',c:'var(--amber)',
     tag:m.jakosc>65?['dobry kolor','var(--amber)']:null,
     p:'Azymut '+Math.round(sunAzi(m.zachod))+'°. Złota godzina do '+hm(m.zmC)+'.'});
@@ -252,9 +278,10 @@ function renderList(m){
   z.push(['Obłoki srebrzyste',(ms>=4&&ms<=7)?'sezon trwa':'wracają w maju']);
   z.push(['Przeloty ISS','wymaga danych na żywo']);
 
-  return '<div class="fade"><div class="head"><h1>Nad Szczecinem</h1><p>'+
+  return '<div class="fade"><div class="head"><h1>'+PLACE+'</h1><p>'+
     m.base.toLocaleDateString('pl-PL',{weekday:'long',day:'numeric',month:'long'})+
-    '</p></div><p class="lede">'+lede+'</p><div class="tl">'+
+    '<button class="locbtn" id="loc">zmień lokalizację</button></p>'+
+    '<div id="locbox"></div></div><p class="lede">'+lede+'</p><div class="tl">'+
     ev.map(x=>'<button class="ev" data-id="'+x.id+'"><span class="time">'+hm(x.t)+'</span>'+
       '<span class="dot" style="border-color:'+x.c+'"></span><span class="box">'+
       '<h3><span>'+x.h+(x.tag?'<span class="tag" style="background:'+x.tag[1]+'22;color:'+x.tag[1]+'">'+x.tag[0]+'</span>':'')+
@@ -399,15 +426,15 @@ function renderYear(m){
   ROJE.filter(r=>r.zhr>=15).forEach(r=>rows.push([
     new Date(Y,r.m-1,r.d).toLocaleDateString('pl-PL',{day:'numeric',month:'short'}),
     'Rój '+r.n, 'ZHR do '+r.zhr+'/h · radiant '+r.dec+'°']));
-  rows.push([nlc0>=0?'15 maj – 15 sie':'','Obłoki srebrzyste','Sezon mezosferyczny. Szczecin leży w pasie 50–70°.']);
+  rows.push([nlc0>=0?'15 maj – 15 sie':'','Obłoki srebrzyste','Sezon mezosferyczny. Widoczne z szerokości 50–70°, ta jest na '+LAT.toFixed(1)+'°.']);
   rows.push(['21 cze','Najkrótsza noc','Brak nocy astronomicznej od połowy maja do końca lipca.']);
   rows.push(['wrz i mar','Sezon zorzowy','Wokół równonocy burze geomagnetyczne są statystycznie częstsze.']);
   rows.push(['21 gru','Najdłuższa noc','Około '+maxN.toFixed(1)+' h ciemności astronomicznej.']);
   rows.sort((a,b)=>0);
 
   return '<div class="fade"><button class="back" id="back">\u2039 Wróć do nocy</button>'+
-    '<h1 class="d-h">Rok nad Szczecinem</h1>'+
-    '<p class="d-when">'+Y+' · '+N+' nocy</p>'+
+    '<h1 class="d-h">Rok</h1>'+
+    '<p class="d-when">'+PLACE+' · '+Y+' · '+N+' nocy</p>'+
     '<p class="d-lead">Wykres pokazuje, ile godzin prawdziwej ciemności masz każdej nocy. Latem spada do zera.</p>'+
     svg+
     '<div class="ylegend">'+
@@ -526,6 +553,67 @@ async function loadLive(){
   draw();
 }
 
+
+/* ================= lokalizacja ================= */
+async function szukaj(q){
+  const r=await fetch('https://geocoding-api.open-meteo.com/v1/search?name='+
+    encodeURIComponent(q)+'&count=6&language=pl&format=json');
+  if(!r.ok) throw new Error(r.status);
+  return (await r.json()).results || [];
+}
+
+function openLocBox(){
+  const box=document.getElementById('locbox');
+  if(box.innerHTML){ box.innerHTML=''; return; }
+  box.innerHTML='<div class="locsearch">'+
+    '<button class="gps" id="gps">Użyj mojej lokalizacji</button>'+
+    '<input id="q" placeholder="Wpisz miasto…" autocomplete="off">'+
+    '<div id="res"></div></div>';
+
+  document.getElementById('gps').addEventListener('click',()=>{
+    const b=document.getElementById('gps'); b.textContent='Pytam przeglądarkę…';
+    if(!navigator.geolocation){ b.textContent='Przeglądarka nie udostępnia lokalizacji'; return; }
+    navigator.geolocation.getCurrentPosition(
+      async pos=>{
+        const la=pos.coords.latitude, lo=pos.coords.longitude;
+        let nazwa=null;
+        try{
+          const r=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+
+            la+'&longitude='+lo+'&localityLanguage=pl');
+          const j=await r.json();
+          nazwa=j.city||j.locality||j.principalSubdivision||null;
+        }catch(e){}
+        setLoc(la,lo,nazwa); draw(); loadLive(); window.scrollTo(0,0);
+      },
+      err=>{ b.textContent = err.code===1
+        ? 'Odmowa dostępu — wpisz miasto poniżej'
+        : 'Nie udało się ustalić pozycji'; },
+      {timeout:10000, maximumAge:600000});
+  });
+
+  const inp=document.getElementById('q'), res=document.getElementById('res');
+  let tid=null;
+  inp.addEventListener('input',()=>{
+    clearTimeout(tid);
+    const q=inp.value.trim();
+    if(q.length<2){ res.innerHTML=''; return; }
+    tid=setTimeout(async()=>{
+      try{
+        const lista=await szukaj(q);
+        res.innerHTML = lista.length
+          ? lista.map((x,i)=>'<button class="r" data-i="'+i+'">'+x.name+
+              '<small>'+[x.admin1,x.country].filter(Boolean).join(', ')+'</small></button>').join('')
+          : '<div style="font-size:13px;color:var(--faint);padding:6px 4px">Nic nie znaleziono</div>';
+        res.querySelectorAll('.r').forEach(b=>b.addEventListener('click',()=>{
+          const x=lista[+b.dataset.i];
+          setLoc(x.latitude,x.longitude,x.name); draw(); loadLive(); window.scrollTo(0,0);
+        }));
+      }catch(e){ res.innerHTML='<div style="font-size:13px;color:var(--faint);padding:6px 4px">Wyszukiwarka niedostępna</div>'; }
+    },350);
+  });
+  inp.focus();
+}
+
 /* ================= router ================= */
 function draw(){
   const m=model();
@@ -539,6 +627,7 @@ function draw(){
       S={view:'detail',id:b.dataset.id}; draw(); window.scrollTo(0,0);}));
     document.getElementById('toyear').addEventListener('click',()=>{
       S={view:'year',id:null}; draw(); window.scrollTo(0,0);});
+    document.getElementById('loc').addEventListener('click',openLocBox);
   } else {
     document.getElementById('back').addEventListener('click',()=>{
       S={view:'list',id:null}; draw(); window.scrollTo(0,0);});
@@ -561,8 +650,28 @@ if(TESTMODE) document.getElementById('dev').style.display='block';
 
 document.getElementById('live-btn').addEventListener('click',loadLive);
 document.getElementById('date').addEventListener('change',loadLive);
-draw();
-loadLive();
+let zapisana=null;
+try{ zapisana=JSON.parse(localStorage.getItem('nightsky.loc')||'null'); }catch(e){}
+if(zapisana && isFinite(zapisana.lat) && isFinite(zapisana.lon)){
+  setLoc(zapisana.lat, zapisana.lon, zapisana.name);
+  draw(); loadLive();
+} else if(navigator.geolocation){
+  /* Pierwsza wizyta: lokalizacja jest podstawowym parametrem tej aplikacji,
+     więc pytamy od razu. Odmowa nie blokuje niczego — zostaje wartość domyślna. */
+  draw();
+  navigator.geolocation.getCurrentPosition(
+    async pos=>{
+      const la=pos.coords.latitude, lo=pos.coords.longitude;
+      let nazwa=null;
+      try{
+        const r=await fetch('https://api.bigdatacloud.net/data/reverse-geocode-client?latitude='+
+          la+'&longitude='+lo+'&localityLanguage=pl');
+        const j=await r.json(); nazwa=j.city||j.locality||null;
+      }catch(e){}
+      setLoc(la,lo,nazwa); draw(); loadLive();
+    },
+    ()=>loadLive(), {timeout:10000, maximumAge:600000});
+} else { draw(); loadLive(); }
 </script>
 </body>
 </html>
