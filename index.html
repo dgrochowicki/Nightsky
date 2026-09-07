@@ -161,6 +161,7 @@
   </div>
 </div>
 
+<script src="astronomy.browser.min.js"></script>
 <script>
 /* ================= astronomia ================= */
 const rad=Math.PI/180,dayMs=864e5,J1970=2440588,J2000=2451545,ecl=rad*23.4397;
@@ -215,6 +216,30 @@ function nextRoj(base){let best=null;
     if(dni>=-2&&(!best||dni<best.dni))best={...r,dni,peak:p};}
   return best;}
 
+
+/* Obłoki srebrzyste świecą, gdy Słońce jest 6–16° pod horyzontem: dość nisko,
+   by niebo było ciemne, i dość wysoko, by podświetlać mezosferę od spodu.
+   Zamiast wpisywać miesiące, sprawdzamy tę geometrię dla danej szerokości. */
+function minAltNocy(d){
+  let mn=90;
+  const s=new Date(d); s.setHours(20,0,0,0);
+  for(let i=0;i<25;i++){ const a=sunAlt(new Date(s.getTime()+i*20*6e4)); if(a<mn) mn=a; }
+  return mn;
+}
+const nlcMozliwe = d => { const a=minAltNocy(d); return a<=-6 && a>=-16; };
+
+function nlcOkno(base){
+  const dzis=nlcMozliwe(base);
+  let i=0;
+  if(dzis){                       // szukamy końca trwającego sezonu
+    while(i<200 && nlcMozliwe(new Date(base.getTime()+(++i)*dayMs)));
+    return {trwa:true, dni:i, data:new Date(base.getTime()+i*dayMs)};
+  }
+  while(i<400 && !nlcMozliwe(new Date(base.getTime()+(++i)*dayMs)));
+  return i>=400 ? {trwa:false, dni:null}
+                : {trwa:false, dni:i, data:new Date(base.getTime()+i*dayMs)};
+}
+
 /* ================= model ================= */
 let S={view:'list',id:null};
 
@@ -232,10 +257,17 @@ function model(){
   const wagaKs=0.40*(1-Math.min(kp/7,1));
   const bezKs=(zmA&&moonAlt(zmA)>0)?1-wagaKs*illum:1;
   const zorza=zasieg*chmuryOk*bezKs;
-  const jakosc=Math.max(0,Math.min(100,(100-Math.abs(hi-55)*1.4)*(1-Math.pow(lo/100,1.2))));
+  /* Świadomie bez liczby. Mechanizm jest prawdziwy — wysokie chmury odbijają
+     światło zza horyzontu i dają kolor, niskie blokują je, zanim tam dotrze —
+     ale ocena „72/100" udawałaby dokładność, której nie mamy. Prawdziwy model
+     potrzebuje wysokości podstawy chmur i profilu wilgotności. */
+  const kolor = lo>70  ? {t:'Niskie chmury zasłonią horyzont', ok:false}
+              : hi<15  ? {t:'Niebo czyste — kolor będzie blady', ok:false}
+              : (hi>=25 && hi<=80 && lo<45) ? {t:'Wysokie chmury mogą złapać kolor', ok:true}
+              : {t:'Kolor raczej umiarkowany', ok:false};
   const radAlt=roj&&zmA?objAlt(new Date(zmA.getTime()+3*36e5),roj.ra,roj.dec):null;
   return {base,kp,lo,hi,zachod,zmC,zmA,swit,mW,mZ,illum,roj,radAlt,
-          chmuryOk,zasieg,bezKs,zorza,jakosc,
+          chmuryOk,zasieg,bezKs,zorza,kolor,
           faza:illum<0.06?'nów':illum<0.45?'sierp':illum<0.6?'kwadra':illum<0.94?'garb':'pełnia'};
 }
 
@@ -245,13 +277,76 @@ const bar=(n,v,c)=>'<div class="row"><span class="row-n">'+n+'</span><span class
 const facts=a=>'<div class="facts">'+a.map(([k,v])=>
   '<div class="f"><div class="f-k">'+k+'</div><div class="f-v">'+v+'</div></div>').join('')+'</div>';
 
+
+/* ================= planety ================= */
+/* Pozycje z Astronomy Engine. Nic z sieci — to czysty rachunek.
+   Kluczowa decyzja: wysokość nad horyzontem NIE jest bramką, tylko
+   poziomem trudności. Wenus na 2° da się sfotografować, jeśli wejdziesz
+   na dach — i lepiej to powiedzieć wprost, niż ukryć planetę pod progiem. */
+
+const PLANETY=[
+  {id:'wenus', n:'Wenus',   b:'Venus'},
+  {id:'jowisz',n:'Jowisz',  b:'Jupiter'},
+  {id:'mars',  n:'Mars',    b:'Mars'},
+  {id:'saturn',n:'Saturn',  b:'Saturn'},
+  {id:'merkury',n:'Merkury',b:'Mercury'}
+];
+const AE = typeof Astronomy!=='undefined';
+
+const kierunek=a=>{const k=['północy','pn.-wsch.','wschodzie','pd.-wsch.','południu',
+  'pd.-zach.','zachodzie','pn.-zach.']; return k[Math.round(a/45)%8];};
+const piesci=h=>{const p=h/10; return p<0.5?'tuż nad horyzontem':
+  p<1.2?'jedną pięść nad horyzontem':p<2.2?'dwie pięści nad horyzontem':
+  p<3.2?'trzy pięści nad horyzontem':'wysoko na niebie';};
+
+function trudnosc(alt){
+  if(alt>=20) return {t:'Widać z każdego podwórka', p:1};
+  if(alt>=10) return {t:'Potrzebny wolny horyzont', p:0.75};
+  if(alt>=5)  return {t:'Potrzebny odsłonięty widok, bez drzew i bloków', p:0.45};
+  return {t:'Trzeba wejść wysoko i wiedzieć, gdzie patrzeć', p:0.2};
+}
+
+function pozycja(body,t,obs){
+  const eq=Astronomy.Equator(body,t,obs,true,true);
+  const h=Astronomy.Horizon(t,obs,eq.ra,eq.dec,'normal');
+  return {alt:h.altitude, azi:h.azimuth};
+}
+
+/* Najlepszy moment to kompromis: planeta opada, a niebo ciemnieje.
+   Iloczyn obu ma maksimum i to jest godzina, którą podajemy. */
+function planetaNocy(pl,m,obs){
+  const od=m.zachod||new Date(m.base), doK=m.swit||new Date(od.getTime()+8*36e5);
+  let best=null;
+  for(let t=od.getTime(); t<=doK.getTime(); t+=10*6e4){
+    const d=new Date(t), sa=sunAlt(d);
+    if(sa>-4) continue;                       // planety widać już w zmierzchu
+    const pos=pozycja(Astronomy.Body[pl.b],d,obs);
+    if(pos.alt<=0) continue;
+    const fWys=Math.min(1,Math.max(0.05,pos.alt/15));
+    const fZmierzch=Math.min(1,(-sa-4)/4);
+    const w=fWys*fZmierzch*m.chmuryOk;
+    if(!best||w>best.w) best={w,t:d,alt:pos.alt,azi:pos.azi,fWys,fZmierzch};
+  }
+  if(!best) return null;
+  let mag=null;
+  try{ mag=Astronomy.Illumination(Astronomy.Body[pl.b],best.t).mag; }catch(e){}
+  return {...pl,...best,mag,trud:trudnosc(best.alt)};
+}
+
+function planety(m){
+  if(!AE) return [];
+  const obs=new Astronomy.Observer(LAT,LON,0);
+  return PLANETY.map(pl=>planetaNocy(pl,m,obs)).filter(Boolean)
+    .sort((a,b)=>(a.mag??9)-(b.mag??9));
+}
+
 /* ================= lista ================= */
 function renderList(m){
   const zorzaOn=m.kp>=KP_NEEDED-1.2;
   let lede;
   if(zorzaOn) lede='Zorza jest w zasięgu. Reszta nocy może poczekać.';
   else if(m.roj&&Math.abs(m.roj.dni)<=1) lede='Maksimum roju '+m.roj.n+'. Ciemno od '+hm(m.zmA)+'.';
-  else if(m.jakosc>65) lede='Najlepszy będzie zachód o '+hm(m.zachod)+'.';
+  else if(m.kolor.ok) lede='Zachód o '+hm(m.zachod)+' może być kolorowy.';
   else if(m.illum<0.15) lede='Nów. Najciemniejsze niebo w miesiącu, od '+hm(m.zmA)+' do '+hm(m.swit)+'.';
   else lede='Spokojna noc. Zachód o '+hm(m.zachod)+', ciemno od '+hm(m.zmA)+'.';
 
@@ -259,7 +354,7 @@ function renderList(m){
   if(zorzaOn) ev.push({t:m.zmA,id:'zorza',h:'Zorza polarna',c:'var(--green)',
     tag:['w zasięgu','var(--green)'],p:'Kp '+m.kp.toFixed(1)+', próg dla tej lokalizacji to '+KP_NEEDED.toFixed(1)+'.'});
   ev.push({t:m.zachod,id:'zachod',h:'Zachód słońca',c:'var(--amber)',
-    tag:m.jakosc>65?['dobry kolor','var(--amber)']:null,
+    tag:m.kolor.ok?['możliwy kolor','var(--amber)']:null,
     p:'Azymut '+Math.round(sunAzi(m.zachod))+'°. Złota godzina do '+hm(m.zmC)+'.'});
   ev.push({t:m.zmA,id:'noc',h:'Ciemne niebo',c:'var(--blue)',
     p:'Zmierzch astronomiczny. Ciemno do '+hm(m.swit)+'.'});
@@ -269,14 +364,37 @@ function renderList(m){
     p:Math.round(m.illum*100)+'% tarczy. '+(m.illum>0.5?'Rozjaśni resztę nocy.':'Nie przeszkodzi.')});
   else if(m.mZ) ev.push({t:m.mZ,id:'ksiezyc',h:'Zachód księżyca',c:'var(--soft)',
     p:'Potem niebo już bez księżyca.'});
+  const pl=planety(m), plWidoczne=pl.filter(x=>x.alt>=3&&x.w>0.05);
+  plWidoczne.slice(0,3).forEach(x=>ev.push({t:x.t,id:'planeta:'+x.id,h:x.n,c:'var(--amber)',
+    tag:x.mag!=null&&x.mag<-2?['jasna','var(--amber)']:null,
+    p:'Na '+kierunek(x.azi)+', '+piesci(x.alt)+'. '+x.trud.t+'.'}));
+
   ev.sort((a,b)=>a.t-b.t);
 
+  const dat=d=>d.toLocaleDateString('pl-PL',{day:'numeric',month:'short'});
+  const za=n=>n===0?'dziś':n===1?'jutro':'za '+n+' dni';
   const z=[];
-  if(!zorzaOn) z.push(['Zorza polarna','Kp '+m.kp.toFixed(1)+' z '+KP_NEEDED.toFixed(1)]);
-  if(!m.roj||Math.abs(m.roj.dni)>2) z.push(['Roje meteorów',m.roj?m.roj.n+' za '+m.roj.dni+' dni':'—']);
-  const ms=m.base.getMonth();
-  z.push(['Obłoki srebrzyste',(ms>=4&&ms<=7)?'sezon trwa':'wracają w maju']);
-  z.push(['Przeloty ISS','wymaga danych na żywo']);
+  if(!zorzaOn){
+    const km=Math.round(((66.5-2.05*m.kp)-MAGLAT)*111/50)*50;
+    z.push([0,'Zorza polarna','Kp '+m.kp.toFixed(1)+', trzeba '+KP_NEEDED.toFixed(1)+
+      ' · owal '+km+' km na północ']);
+  }
+  if(!m.roj||Math.abs(m.roj.dni)>2){
+    z.push([m.roj?m.roj.dni:9999,'Rój '+(m.roj?m.roj.n:'—'),
+      m.roj?za(m.roj.dni)+', '+dat(m.roj.peak)+' · ZHR do '+m.roj.zhr:'—']);
+  }
+  const nlc=nlcOkno(m.base);
+  if(nlc.trwa) z.push([0,'Obłoki srebrzyste','sezon trwa jeszcze '+nlc.dni+' dni · patrz 1–2 h po zachodzie']);
+  else if(nlc.dni!=null) z.push([nlc.dni,'Obłoki srebrzyste','sezon wraca '+za(nlc.dni)+', '+dat(nlc.data)]);
+  else z.push([9998,'Obłoki srebrzyste','ta szerokość jest poza pasem widoczności']);
+  if(AE){
+    const nis=pl.filter(x=>x.alt<3||x.w<=0.05);
+    nis.slice(0,2).forEach(x=>z.push([1,x.n,'tylko '+x.alt.toFixed(0)+'° nad horyzontem o '+hm(x.t)]));
+    PLANETY.filter(q=>!pl.some(x=>x.id===q.id)).slice(0,2)
+      .forEach(q=>z.push([2,q.n,'pod horyzontem przez całą noc']));
+  }
+  z.push([9999,'Przeloty ISS','wymaga danych na żywo — nie ma ich jeszcze']);
+  z.sort((a,b)=>a[0]-b[0]);
 
   return '<div class="fade"><div class="head"><h1>'+PLACE+'</h1><p>'+
     m.base.toLocaleDateString('pl-PL',{weekday:'long',day:'numeric',month:'long'})+
@@ -287,7 +405,7 @@ function renderList(m){
       '<h3><span>'+x.h+(x.tag?'<span class="tag" style="background:'+x.tag[1]+'22;color:'+x.tag[1]+'">'+x.tag[0]+'</span>':'')+
       '</span><em>›</em></h3><p>'+x.p+'</p></span></button>').join('')+
     '</div><div class="zzz"><h2>Dziś śpi</h2>'+
-    z.map(([a,b])=>'<div class="zrow"><b>'+a+'</b><span>'+b+'</span></div>').join('')+'</div>'+
+    z.map(([,a,b])=>'<div class="zrow"><b>'+a+'</b><span>'+b+'</span></div>').join('')+'</div>'+
     '<button class="yearlink" id="toyear"><span>Cały rok<small>Co wraca co roku i kiedy</small></span><em>\u203A</em></button></div>';
 }
 
@@ -318,18 +436,15 @@ function renderDetail(id,m){
 
   if(id==='zachod'){
     h='Zachód słońca';when=hm(m.zachod)+' · azymut '+Math.round(sunAzi(m.zachod))+'°';
-    lead=m.jakosc>65?'Zapowiada się mocny kolor.':m.jakosc>35?'Może być przyzwoicie.':
-         m.lo>70?'Niskie chmury zasłonią wszystko.':m.hi<15?'Niebo za czyste — nie ma na czym się odbić.':'Raczej blado.';
-    body='<div class="big"><b style="color:var(--amber)">'+Math.round(m.jakosc)+
-      '</b><span>ocena koloru w skali do 100</span></div>'+
-      '<div class="sec"><h2>Dlaczego</h2>'+
-      bar('Chmury wysokie',Math.max(0,1-Math.abs(m.hi-55)/70),'var(--amber)')+
-      bar('Czysty horyzont',1-Math.pow(m.lo/100,1.2),'var(--amber)')+
-      '</div><div class="sec"><h2>Okna światła</h2>'+facts([
-      ['Złota godzina','do '+hm(m.zmC)],['Niebieska godzina',hm(m.zmC)+' – '+hm(cross(m.base,sunAlt,-12,-1))],
-      ['Azymut zachodu',Math.round(sunAzi(m.zachod))+'°'],['Kierunek',(()=>{const a=sunAzi(m.zachod);
+    lead=m.kolor.t+'.';
+    body='<div class="sec"><h2>Warstwy chmur</h2>'+facts([
+      ['Wysokie',m.hi+'%'],['Niskie',m.lo+'%'],
+      ['Złota godzina','do '+hm(m.zmC)],['Niebieska godzina',hm(m.zmC)+' – '+hm(cross(m.base,sunAlt,-12,-1))]])+
+      '</div><div class="sec"><h2>Kierunek</h2>'+facts([
+      ['Azymut',Math.round(sunAzi(m.zachod))+'°'],
+      ['Strona',(()=>{const a=sunAzi(m.zachod);
         return a<250?'pd.-zach.':a<280?'zachód':'pn.-zach.';})()]])+
-      '</div><p class="src">Wysokie chmury odbijają światło zza horyzontu i dają kolor — najlepiej przy pokryciu około 50%. Niskie chmury blokują promienie, zanim dotrą do tych wysokich. Dlatego dwie liczby działają w przeciwne strony.</p>';
+      '</div><p class="src">Wysokie chmury odbijają światło zza horyzontu i dają kolor — najlepiej przy pokryciu mniej więcej w połowie. Niskie blokują promienie, zanim tam dotrą. Dlatego te dwie liczby działają w przeciwne strony. Świadomie nie podajemy oceny punktowej: rzetelny model potrzebuje wysokości podstawy chmur i profilu wilgotności, a tych danych tu nie ma.</p>';
   }
 
   if(id==='noc'){
@@ -356,6 +471,37 @@ function renderDetail(id,m){
       ['Wschód',hm(m.mW)],['Zachód',hm(m.mZ)],
       ['Faza',m.faza],['Nad horyzontem o '+hm(m.zmA),m.zmA&&moonAlt(m.zmA)>0?Math.round(moonAlt(m.zmA))+'°':'pod horyzontem']])+
       '</div><p class="src">Faza i pozycja liczone z uproszczonych elementów orbity — dokładność rzędu kilku minut na wschodach i zachodach, w zupełności wystarczająca do planowania obserwacji.</p>';
+  }
+
+  if(id.startsWith('planeta:')){
+    const pl=planety(m).find(x=>x.id===id.split(':')[1]);
+    if(pl){
+      const ks=m.mW&&moonAlt(pl.t)>0 ? (()=>{
+        const obs=new Astronomy.Observer(LAT,LON,0);
+        const md=toDays(pl.t), mc=moonC(md);
+        const mAlt=altOf(sid(md,LW)-mc.ra,mc.dec), mAzi=aziOf(sid(md,LW)-mc.ra,mc.dec);
+        let d=pl.azi-mAzi; if(d>180)d-=360; if(d<-180)d+=360;
+        const bok=d>8?'w prawo od Księżyca':d<-8?'w lewo od Księżyca':'blisko Księżyca';
+        const gora=pl.alt-mAlt>8?', wyżej':pl.alt-mAlt<-8?', niżej':'';
+        return bok+gora;
+      })() : null;
+
+      h=pl.n;
+      when='Najlepiej o '+hm(pl.t)+' · '+pl.alt.toFixed(0)+'° nad horyzontem';
+      lead='Szukaj na '+kierunek(pl.azi)+', '+piesci(pl.alt)+'.';
+      body=(ks?'<p class="d-lead" style="color:var(--soft);margin-top:-14px">Albo prościej: '+ks+'.</p>':'')+
+        '<div class="sec"><h2>Jak trudno</h2>'+
+        bar('Wysokość',pl.trud.p,'var(--amber)')+
+        bar('Ciemność',pl.fZmierzch,'var(--amber)')+
+        bar('Czyste niebo',m.chmuryOk,'var(--amber)')+
+        '<p style="font-size:13px;color:var(--soft);margin:12px 0 0">'+pl.trud.t+'.</p>'+
+        '</div><div class="sec"><h2>Dane</h2>'+facts([
+        ['Najlepszy moment',hm(pl.t)],['Wysokość',pl.alt.toFixed(1)+'°'],
+        ['Azymut',Math.round(pl.azi)+'°'],['Jasność',pl.mag!=null?pl.mag.toFixed(1)+' mag':'—']])+
+        '</div><p class="src">Godzina to kompromis: planeta opada ku horyzontowi, a niebo w tym czasie ciemnieje. Iloczyn obu ma maksimum i to je podajemy. Pozycja liczona przez Astronomy Engine dla twoich współrzędnych — bez żadnego zapytania do sieci. Pięść na wyciągniętej ręce to około 10 stopni.</p>';
+    } else {
+      h='Planeta'; when=''; lead='Nie jest dziś widoczna nad horyzontem.'; body='';
+    }
   }
 
   if(id==='roj'&&m.roj){
@@ -407,11 +553,16 @@ function renderYear(m){
   }
   const dayOf=(mo,d)=>Math.round((new Date(Y,mo-1,d)-start)/dayMs);
 
-  // sezon oblokow srebrzystych: 15 V - 15 VIII
-  const nlc0=dayOf(5,15), nlc1=dayOf(8,15);
+  // sezon obłoków liczony z geometrii dla tej szerokości, nie z miesięcy
+  let nlc0=-1, nlc1=-1;
+  for(let i=0;i<N;i++){
+    if(nlcMozliwe(new Date(Y,0,1+i))){ if(nlc0<0) nlc0=i; nlc1=i; }
+  }
+  const nlcOd = nlc0>=0 ? new Date(Y,0,1+nlc0) : null;
+  const nlcDo = nlc1>=0 ? new Date(Y,0,1+nlc1) : null;
 
   let svg='<svg class="ychart" viewBox="0 0 '+W+' '+(H+18)+'" xmlns="http://www.w3.org/2000/svg">';
-  svg+='<rect x="'+(nlc0*W/N)+'" y="0" width="'+((nlc1-nlc0)*W/N)+'" height="'+H+'" fill="#7FB8E8" opacity=".07"/>';
+  if(nlc0>=0) svg+='<rect x="'+(nlc0*W/N)+'" y="0" width="'+((nlc1-nlc0)*W/N)+'" height="'+H+'" fill="#7FB8E8" opacity=".07"/>';
   svg+='<path d="'+area+'" fill="#7FB8E8" opacity=".22"/>';
   nowie.forEach(i=>{svg+='<circle cx="'+(i*W/N)+'" cy="'+(H+7)+'" r="1.8" fill="#5A6580"/>';});
   ROJE.forEach(r=>{const i=dayOf(r.m,r.d), x=i*W/N, big=r.zhr>=100;
@@ -426,8 +577,13 @@ function renderYear(m){
   ROJE.filter(r=>r.zhr>=15).forEach(r=>rows.push([
     new Date(Y,r.m-1,r.d).toLocaleDateString('pl-PL',{day:'numeric',month:'short'}),
     'Rój '+r.n, 'ZHR do '+r.zhr+'/h · radiant '+r.dec+'°']));
-  rows.push([nlc0>=0?'15 maj – 15 sie':'','Obłoki srebrzyste','Sezon mezosferyczny. Widoczne z szerokości 50–70°, ta jest na '+LAT.toFixed(1)+'°.']);
-  rows.push(['21 cze','Najkrótsza noc','Brak nocy astronomicznej od połowy maja do końca lipca.']);
+  rows.push([nlcOd&&nlcDo?nlcOd.toLocaleDateString('pl-PL',{day:'numeric',month:'short'})+' – '+
+    nlcDo.toLocaleDateString('pl-PL',{day:'numeric',month:'short'}):'brak',
+    'Obłoki srebrzyste','Okno, w którym Słońce chodzi 6–16° pod horyzontem na szerokości '+LAT.toFixed(1)+'°.']);
+  const bezNocy=days.filter(h=>h<=0).length;
+  rows.push(['21 cze','Najkrótsza noc', bezNocy
+    ? 'Przez '+bezNocy+' dni w roku Słońce nie schodzi 18° pod horyzont.'
+    : 'Noc astronomiczna trwa tu przez cały rok.']);
   rows.push(['wrz i mar','Sezon zorzowy','Wokół równonocy burze geomagnetyczne są statystycznie częstsze.']);
   rows.push(['21 gru','Najdłuższa noc','Około '+maxN.toFixed(1)+' h ciemności astronomicznej.']);
   rows.sort((a,b)=>0);
