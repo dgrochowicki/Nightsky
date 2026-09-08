@@ -249,7 +249,7 @@ function model(){
         lo=+document.getElementById('lo').value,
         hi=+document.getElementById('hi').value;
   const zachod=cross(base,sunAlt,-0.833,-1), zmC=cross(base,sunAlt,-6,-1),
-        zmA=cross(base,sunAlt,-18,-1), swit=cross(new Date(base-dayMs),sunAlt,-18,1),
+        zmA=cross(base,sunAlt,-18,-1), swit=cross(base,sunAlt,-18,1),
         mW=cross(base,moonAlt,0,1), mZ=cross(base,moonAlt,0,-1);
   const illum=moonIllum(zachod||base), roj=nextRoj(base);
   const chmuryOk=1-Math.pow(Math.min(100,lo+hi*0.35)/100,1.4);
