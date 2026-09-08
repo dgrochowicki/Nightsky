@@ -40,6 +40,12 @@
   .lede{font-family:"Newsreader",Georgia,serif;font-size:20px;font-weight:300;line-height:1.42;
     margin:0 0 26px;padding-bottom:22px;border-bottom:1px solid var(--line);max-width:30ch}
 
+  /* ---- pasek nocy ---- */
+  .strip{position:relative;border-radius:12px;overflow:hidden;background:#05070E;margin-top:-4px}
+  .strip svg{display:block;width:100%;height:auto}
+  .hours{display:flex;margin:7px 0 28px;padding:0 1px}
+  .hours span{flex:1;font-size:10.5px;color:var(--faint);text-align:center}
+
   /* ---- timeline ---- */
   .tl{position:relative;padding-left:62px}
   .tl::before{content:"";position:absolute;left:53px;top:12px;bottom:14px;width:1px;background:var(--line)}
@@ -340,6 +346,70 @@ function planety(m){
     .sort((a,b)=>(a.mag??9)-(b.mag??9));
 }
 
+/* ================= pasek nocy ================= */
+/* Kształt nocy jako obrazek zamiast tabelki: kolor nieba z wysokości Słońca,
+   zasłona chmur, pasek obecności księżyca. Jedna wartość chmur na całą noc —
+   tyle mamy z jednego zapytania o pogodę, więc pasek jej nie zmyśla. */
+const STOPS=[[ 6,[ 62, 96,143]],[ 0,[ 44, 71,112]],[ -6,[ 26, 46, 79]],
+             [-12,[ 16, 30, 54]],[-18,[  8, 16, 32]],[-90,[  5,  7, 14]]];
+function nieboColor(a){
+  for(let i=0;i<STOPS.length-1;i++){
+    const [h1,c1]=STOPS[i],[h2,c2]=STOPS[i+1];
+    if(a<=h1&&a>=h2){
+      const f=(h1-a)/(h1-h2);
+      return 'rgb('+c1.map((v,k)=>Math.round(v+(c2[k]-v)*f)).join(',')+')';
+    }
+  }
+  return a>6?'rgb(62,96,143)':'rgb(5,7,14)';
+}
+
+function renderStrip(m){
+  const T0=new Date((m.zachod||m.base).getTime()-45*6e4);
+  const T1=new Date((m.swit||new Date(T0.getTime()+8*36e5)).getTime()+45*6e4);
+  const N=160, W=440, H=132, PAS=96;
+  const zaslona=Math.min(100,m.lo+m.hi*0.35);
+  const probki=[];
+  for(let i=0;i<=N;i++){
+    const t=new Date(T0.getTime()+(T1-T0)*i/N);
+    probki.push({t, sa:sunAlt(t), ma:moonAlt(t), il:moonIllum(t)});
+  }
+  let g='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">';
+  probki.forEach((p,i)=>{
+    const x=i*W/N;
+    g+='<rect x="'+x.toFixed(2)+'" y="0" width="'+(W/N+0.6).toFixed(2)+'" height="'+PAS+
+       '" fill="'+nieboColor(p.sa)+'"/>';
+  });
+  g+='<rect x="0" y="0" width="'+W+'" height="'+(zaslona/100*PAS*0.62).toFixed(1)+'" fill="#7FB8E8" opacity=".22"/>';
+  probki.forEach((p,i)=>{
+    if(p.ma>0){
+      const x=i*W/N;
+      g+='<rect x="'+x.toFixed(2)+'" y="'+(PAS-7)+'" width="'+(W/N+0.6).toFixed(2)+
+         '" height="6" fill="#C9D4E8" opacity="'+(0.15+p.il*0.6).toFixed(2)+'"/>';
+    }
+  });
+  const mark=(t,txt,col)=>{
+    if(!t||t<T0||t>T1) return '';
+    const x=(t-T0)/(T1-T0)*W;
+    return '<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
+      '" stroke="'+col+'" stroke-width="1" opacity=".8"/>'+
+      '<text x="'+(x+4).toFixed(1)+'" y="'+(PAS+13)+'" fill="'+col+
+      '" font-size="9" font-family="Instrument Sans">'+txt+'</text>';
+  };
+  g+=mark(m.zmA,'ciemno','#7FB8E8');
+  g+=mark(m.mW,'księżyc','#C9D4E8');
+  g+=mark(m.mZ,'kon. księżyca','#C9D4E8');
+  const teraz=new Date();
+  if(teraz>=T0&&teraz<=T1){
+    const x=(teraz-T0)/(T1-T0)*W;
+    g+='<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
+       '" stroke="#E8B475" stroke-width="1.6"/>';
+  }
+  g+='</svg>';
+  let hh='';
+  for(let i=0;i<7;i++) hh+='<span>'+hm(new Date(T0.getTime()+(T1-T0)*i/6))+'</span>';
+  return '<div class="strip">'+g+'</div><div class="hours">'+hh+'</div>';
+}
+
 /* ================= lista ================= */
 function renderList(m){
   const zorzaOn=m.kp>=KP_NEEDED-1.2;
@@ -399,7 +469,7 @@ function renderList(m){
   return '<div class="fade"><div class="head"><h1>'+PLACE+'</h1><p>'+
     m.base.toLocaleDateString('pl-PL',{weekday:'long',day:'numeric',month:'long'})+
     '<button class="locbtn" id="loc">zmień lokalizację</button></p>'+
-    '<div id="locbox"></div></div><p class="lede">'+lede+'</p><div class="tl">'+
+    '<div id="locbox"></div></div><p class="lede">'+lede+'</p>'+renderStrip(m)+'<div class="tl">'+
     ev.map(x=>'<button class="ev" data-id="'+x.id+'"><span class="time">'+hm(x.t)+'</span>'+
       '<span class="dot" style="border-color:'+x.c+'"></span><span class="box">'+
       '<h3><span>'+x.h+(x.tag?'<span class="tag" style="background:'+x.tag[1]+'22;color:'+x.tag[1]+'">'+x.tag[0]+'</span>':'')+
@@ -567,9 +637,17 @@ function renderYear(m){
   nowie.forEach(i=>{svg+='<circle cx="'+(i*W/N)+'" cy="'+(H+7)+'" r="1.8" fill="#5A6580"/>';});
   ROJE.forEach(r=>{const i=dayOf(r.m,r.d), x=i*W/N, big=r.zhr>=100;
     svg+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+H+'" stroke="'+(big?'#A794EC':'#3A4459')+'" stroke-width="'+(big?1.4:0.9)+'"/>';});
+  const dzisiaj=new Date();
+  if(dzisiaj.getFullYear()===Y){
+    const x=Math.round((dzisiaj-start)/dayMs)*W/N;
+    svg+='<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+H+
+      '" stroke="#E8B475" stroke-width="1.4"/>'+
+      '<text x="'+(x+3).toFixed(1)+'" y="9" fill="#E8B475" font-size="8" font-family="Instrument Sans">dziś</text>';
+  }
   for(let mo=0;mo<12;mo++){const x=dayOf(mo+1,1)*W/N;
-    svg+='<text x="'+(x+3)+'" y="'+(H+15)+'" fill="#5A6580" font-size="8" font-family="Instrument Sans">'+
-      ['S','L','M','K','M','C','L','S','W','P','L','G'][mo]+'</text>';}
+    svg+='<line x1="'+x+'" y1="'+H+'" x2="'+x+'" y2="'+(H+4)+'" stroke="#3A4459" stroke-width="1"/>'+
+      '<text x="'+(x+3)+'" y="'+(H+15)+'" fill="#5A6580" font-size="8" font-family="Instrument Sans">'+
+      ['Sty','Lut','Mar','Kwi','Maj','Cze','Lip','Sie','Wrz','Paź','Lis','Gru'][mo]+'</text>';}
   svg+='</svg>';
 
   // lista cyklu
@@ -598,6 +676,7 @@ function renderYear(m){
       '<span><i style="background:#A794EC"></i>roje meteorów</span>'+
       '<span><i style="background:#7FB8E8;opacity:.25"></i>obłoki srebrzyste</span>'+
       '<span><i style="background:#5A6580;border-radius:50%"></i>nów</span>'+
+      '<span><i style="background:#E8B475"></i>dziś</span>'+
     '</div>'+
     '<div class="sec"><h2>Co wraca co roku</h2>'+
     rows.map(([d,t,s])=>'<div class="yrow"><span class="yd">'+d+'</span><span><b>'+t+'</b><span>'+s+'</span></span></div>').join('')+
