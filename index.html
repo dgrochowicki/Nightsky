@@ -371,56 +371,47 @@ function renderStrip(m){
   const T0=new Date((m.zachod||m.base).getTime()-45*6e4);
   const T1=new Date((m.swit||new Date(T0.getTime()+8*36e5)).getTime()+45*6e4);
   const N=160, W=440, PAS=116, H=PAS+24;
-  const zaslona=Math.min(100,m.lo+m.hi*0.35);
   const probki=[];
   for(let i=0;i<=N;i++){
     const t=new Date(T0.getTime()+(T1-T0)*i/N);
     probki.push({t, sa:sunAlt(t), ma:moonAlt(t), il:moonIllum(t)});
   }
+  // Gradient sam mówi "ciemniej" — bez nakładki. Spłaszcza się dokładnie przy -18°,
+  // czyli tam gdzie zaczyna się prawdziwa noc astronomiczna, więc próg widać kolorem,
+  // nie osobną kreską, której nikt nie rozszyfruje bez legendy.
   let g='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">';
   probki.forEach((p,i)=>{
     const x=i*W/N;
     g+='<rect x="'+x.toFixed(2)+'" y="0" width="'+(W/N+0.6).toFixed(2)+'" height="'+PAS+
        '" fill="'+nieboColor(p.sa)+'"/>';
   });
-  // mgła zamiast bloku: przezroczystość rośnie z zachmurzeniem na całej wysokości paska,
-  // więc czyta się jak zamglone niebo, nie jak losowy prostokąt
-  if(zaslona>3) g+='<rect x="0" y="0" width="'+W+'" height="'+PAS+
-    '" fill="#FFFFFF" opacity="'+Math.min(0.32,zaslona/100*0.32).toFixed(2)+'"/>';
+  // Pasek księżyca z etykietą przyklejoną do jego własnego lewego brzegu —
+  // nie osobna kreska gdzieś obok, tylko podpis tuż nad tym, co opisuje.
+  let bandX=null;
   probki.forEach((p,i)=>{
     if(p.ma>0){
       const x=i*W/N;
+      if(bandX==null) bandX=x;
       g+='<rect x="'+x.toFixed(2)+'" y="'+(PAS-11)+'" width="'+(W/N+0.6).toFixed(2)+
-         '" height="10" fill="'+MOONCOL+'" opacity="'+(0.28+p.il*0.55).toFixed(2)+'"/>';
+         '" height="10" fill="'+MOONCOL+'" opacity="'+(0.3+p.il*0.55).toFixed(2)+'"/>';
     }
   });
-  const mark=(t,txt,col)=>{
-    if(!t||t<T0||t>T1) return '';
-    const x=(t-T0)/(T1-T0)*W;
-    return '<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
-      '" stroke="'+col+'" stroke-width="1.2" opacity=".85"/>'+
-      '<text x="'+(x+4).toFixed(1)+'" y="'+(PAS+14)+'" fill="'+col+
-      '" font-size="9.5" font-family="Instrument Sans">'+txt+'</text>';
-  };
-  g+=mark(m.zmA,'ciemno od','#7FB8E8');
-  g+=mark(m.mW,'wsch. księżyca',MOONCOL);
-  g+=mark(m.mZ,'zach. księżyca',MOONCOL);
+  if(bandX!=null) g+='<text x="'+Math.max(4,bandX+3).toFixed(1)+'" y="'+(PAS-16)+
+    '" fill="'+MOONCOL+'" font-size="9.5" font-family="Instrument Sans">księżyc nad horyzontem</text>';
   const teraz=new Date();
   if(teraz>=T0&&teraz<=T1){
     const x=(teraz-T0)/(T1-T0)*W;
     g+='<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
        '" stroke="'+TERAZCOL+'" stroke-width="1.6"/>'+
-       '<circle cx="'+x.toFixed(1)+'" cy="0" r="2.6" fill="'+TERAZCOL+'"/>';
+       '<circle cx="'+x.toFixed(1)+'" cy="0" r="2.6" fill="'+TERAZCOL+'"/>'+
+       '<text x="'+(x+4).toFixed(1)+'" y="12" fill="'+TERAZCOL+
+       '" font-size="9.5" font-family="Instrument Sans">teraz</text>';
   }
   g+='</svg>';
   let hh='';
   for(let i=0;i<7;i++) hh+='<span>'+hm(new Date(T0.getTime()+(T1-T0)*i/6))+'</span>';
-  const leg=(col,txt)=>'<span><i style="background:'+col+'"></i>'+txt+'</span>';
   return '<div class="strip">'+g+'</div><div class="hours">'+hh+'</div>'+
-    '<div class="strip-legend">'+
-      leg('#7FB8E8','ciemność')+leg(MOONCOL,'księżyc nad horyzontem')+
-      leg('rgba(255,255,255,.55)','zachmurzenie')+leg(TERAZCOL,'teraz')+
-    '</div>';
+    '<div class="strip-legend"><span>chmury '+m.lo+'% / '+m.hi+'%</span></div>';
 }
 
 /* ================= lista ================= */
