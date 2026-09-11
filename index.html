@@ -43,8 +43,10 @@
   /* ---- pasek nocy ---- */
   .strip{position:relative;border-radius:12px;overflow:hidden;background:#05070E;margin-top:-4px}
   .strip svg{display:block;width:100%;height:auto}
-  .hours{display:flex;margin:7px 0 28px;padding:0 1px}
-  .hours span{flex:1;font-size:10.5px;color:var(--faint);text-align:center}
+  .hours{display:flex;margin:7px 0 0;padding:0 1px}
+  .hours span{flex:1;font-size:11.5px;color:var(--faint);text-align:center}
+  .strip-legend{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 28px;font-size:11px;color:var(--faint)}
+  .strip-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
 
   /* ---- timeline ---- */
   .tl{position:relative;padding-left:62px}
@@ -53,8 +55,8 @@
     color:inherit;font:inherit;cursor:pointer;display:block}
   .ev:last-child{padding-bottom:6px}
   .ev .time{display:block;position:absolute;left:-62px;top:0;width:44px;text-align:right;font-size:13.5px;color:var(--faint)}
-  .ev .dot{display:block;position:absolute;left:-13px;top:7px;width:9px;height:9px;border-radius:50%;
-    background:var(--bg);border:1.5px solid var(--faint)}
+  .ev .dot{display:block;position:absolute;left:-14px;top:6px;width:10px;height:10px;border-radius:50%;
+    background:var(--faint);box-shadow:0 0 0 3px var(--bg)}
   .ev .box{display:block;background:var(--card);border:1px solid var(--line);border-radius:11px;padding:12px 14px;
     transition:border-color .18s}
   .ev:hover .box,.ev:focus-visible .box{border-color:var(--soft)}
@@ -363,10 +365,12 @@ function nieboColor(a){
   return a>6?'rgb(62,96,143)':'rgb(5,7,14)';
 }
 
+const MOONCOL='#95A0B8', TERAZCOL='#E8EBF2';
+
 function renderStrip(m){
   const T0=new Date((m.zachod||m.base).getTime()-45*6e4);
   const T1=new Date((m.swit||new Date(T0.getTime()+8*36e5)).getTime()+45*6e4);
-  const N=160, W=440, H=132, PAS=96;
+  const N=160, W=440, PAS=116, H=PAS+24;
   const zaslona=Math.min(100,m.lo+m.hi*0.35);
   const probki=[];
   for(let i=0;i<=N;i++){
@@ -379,35 +383,44 @@ function renderStrip(m){
     g+='<rect x="'+x.toFixed(2)+'" y="0" width="'+(W/N+0.6).toFixed(2)+'" height="'+PAS+
        '" fill="'+nieboColor(p.sa)+'"/>';
   });
-  g+='<rect x="0" y="0" width="'+W+'" height="'+(zaslona/100*PAS*0.62).toFixed(1)+'" fill="#7FB8E8" opacity=".22"/>';
+  // mgła zamiast bloku: przezroczystość rośnie z zachmurzeniem na całej wysokości paska,
+  // więc czyta się jak zamglone niebo, nie jak losowy prostokąt
+  if(zaslona>3) g+='<rect x="0" y="0" width="'+W+'" height="'+PAS+
+    '" fill="#FFFFFF" opacity="'+Math.min(0.32,zaslona/100*0.32).toFixed(2)+'"/>';
   probki.forEach((p,i)=>{
     if(p.ma>0){
       const x=i*W/N;
-      g+='<rect x="'+x.toFixed(2)+'" y="'+(PAS-7)+'" width="'+(W/N+0.6).toFixed(2)+
-         '" height="6" fill="#C9D4E8" opacity="'+(0.15+p.il*0.6).toFixed(2)+'"/>';
+      g+='<rect x="'+x.toFixed(2)+'" y="'+(PAS-11)+'" width="'+(W/N+0.6).toFixed(2)+
+         '" height="10" fill="'+MOONCOL+'" opacity="'+(0.28+p.il*0.55).toFixed(2)+'"/>';
     }
   });
   const mark=(t,txt,col)=>{
     if(!t||t<T0||t>T1) return '';
     const x=(t-T0)/(T1-T0)*W;
     return '<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
-      '" stroke="'+col+'" stroke-width="1" opacity=".8"/>'+
-      '<text x="'+(x+4).toFixed(1)+'" y="'+(PAS+13)+'" fill="'+col+
-      '" font-size="9" font-family="Instrument Sans">'+txt+'</text>';
+      '" stroke="'+col+'" stroke-width="1.2" opacity=".85"/>'+
+      '<text x="'+(x+4).toFixed(1)+'" y="'+(PAS+14)+'" fill="'+col+
+      '" font-size="9.5" font-family="Instrument Sans">'+txt+'</text>';
   };
-  g+=mark(m.zmA,'ciemno','#7FB8E8');
-  g+=mark(m.mW,'księżyc','#C9D4E8');
-  g+=mark(m.mZ,'kon. księżyca','#C9D4E8');
+  g+=mark(m.zmA,'ciemno od','#7FB8E8');
+  g+=mark(m.mW,'wsch. księżyca',MOONCOL);
+  g+=mark(m.mZ,'zach. księżyca',MOONCOL);
   const teraz=new Date();
   if(teraz>=T0&&teraz<=T1){
     const x=(teraz-T0)/(T1-T0)*W;
     g+='<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
-       '" stroke="#E8B475" stroke-width="1.6"/>';
+       '" stroke="'+TERAZCOL+'" stroke-width="1.6"/>'+
+       '<circle cx="'+x.toFixed(1)+'" cy="0" r="2.6" fill="'+TERAZCOL+'"/>';
   }
   g+='</svg>';
   let hh='';
   for(let i=0;i<7;i++) hh+='<span>'+hm(new Date(T0.getTime()+(T1-T0)*i/6))+'</span>';
-  return '<div class="strip">'+g+'</div><div class="hours">'+hh+'</div>';
+  const leg=(col,txt)=>'<span><i style="background:'+col+'"></i>'+txt+'</span>';
+  return '<div class="strip">'+g+'</div><div class="hours">'+hh+'</div>'+
+    '<div class="strip-legend">'+
+      leg('#7FB8E8','ciemność')+leg(MOONCOL,'księżyc nad horyzontem')+
+      leg('rgba(255,255,255,.55)','zachmurzenie')+leg(TERAZCOL,'teraz')+
+    '</div>';
 }
 
 /* ================= lista ================= */
@@ -471,7 +484,7 @@ function renderList(m){
     '<button class="locbtn" id="loc">zmień lokalizację</button></p>'+
     '<div id="locbox"></div></div><p class="lede">'+lede+'</p>'+renderStrip(m)+'<div class="tl">'+
     ev.map(x=>'<button class="ev" data-id="'+x.id+'"><span class="time">'+hm(x.t)+'</span>'+
-      '<span class="dot" style="border-color:'+x.c+'"></span><span class="box">'+
+      '<span class="dot" style="background:'+x.c+'"></span><span class="box">'+
       '<h3><span>'+x.h+(x.tag?'<span class="tag" style="background:'+x.tag[1]+'22;color:'+x.tag[1]+'">'+x.tag[0]+'</span>':'')+
       '</span><em>›</em></h3><p>'+x.p+'</p></span></button>').join('')+
     '</div><div class="zzz"><h2>Dziś śpi</h2>'+
