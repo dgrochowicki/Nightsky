@@ -341,6 +341,46 @@ function planetaNocy(pl,m,obs){
   return {...pl,...best,mag,trud:trudnosc(best.alt)};
 }
 
+/* Kiedy planeta wraca, jeśli dziś jej nie ma. Merkury bywa widoczny tylko
+   w wąskim, przesuwającym się oknie zmierzchu — jedna próbka o stałej porze
+   go regularnie gubi. Więc: najpierw zgrubne przeszukanie co 5 dni (co noc
+   szukamy maksymalnej wysokości, nie jednej chwili), a gdy trafi próg, dopiero
+   ten pięciodniowy przedział przeszukujemy dzień po dniu tak dokładnie jak
+   planetaNocy. Wynik nie zależy od Kp ani chmur, więc jest cache'owany —
+   przeciąganie suwaków go nie przelicza, tylko zmiana daty albo lokalizacji. */
+const WRACA_CACHE={};
+function nocMaxAlt(body,d,obs,krokMin){
+  const zach=cross(d,sunAlt,-0.833,-1), swit=cross(d,sunAlt,-18,1);
+  if(!zach) return -99;
+  const doK=swit||new Date(zach.getTime()+8*36e5);
+  let maxAlt=-99;
+  for(let t=zach.getTime();t<=doK.getTime();t+=krokMin*6e4){
+    const dt=new Date(t);
+    if(sunAlt(dt)>-4) continue;
+    const alt=pozycja(body,dt,obs).alt;
+    if(alt>maxAlt) maxAlt=alt;
+  }
+  return maxAlt;
+}
+function planetaWraca(pl,base,obs){
+  const klucz=PLACE+'|'+pl.id+'|'+base.toDateString();
+  if(klucz in WRACA_CACHE) return WRACA_CACHE[klucz];
+  const body=Astronomy.Body[pl.b];
+  let blok=null;
+  for(let dzien=5;dzien<=240;dzien+=5){
+    if(nocMaxAlt(body,new Date(base.getTime()+dzien*dayMs),obs,30)>=3){ blok=dzien; break; }
+  }
+  let wynik=null;
+  if(blok!=null){
+    for(let dzien=Math.max(1,blok-5);dzien<=blok;dzien++){
+      if(nocMaxAlt(body,new Date(base.getTime()+dzien*dayMs),obs,10)>=3){ wynik=dzien; break; }
+    }
+    if(wynik==null) wynik=blok;
+  }
+  WRACA_CACHE[klucz]=wynik;
+  return wynik;
+}
+
 function planety(m){
   if(!AE) return [];
   const obs=new Astronomy.Observer(LAT,LON,0);
@@ -462,10 +502,15 @@ function renderList(m){
   else if(nlc.dni!=null) z.push([nlc.dni,'Obłoki srebrzyste','sezon wraca '+za(nlc.dni)+', '+dat(nlc.data)]);
   else z.push([9998,'Obłoki srebrzyste','ta szerokość jest poza pasem widoczności']);
   if(AE){
+    const obsP=new Astronomy.Observer(LAT,LON,0);
     const nis=pl.filter(x=>x.alt<3||x.w<=0.05);
     nis.slice(0,2).forEach(x=>z.push([1,x.n,'tylko '+x.alt.toFixed(0)+'° nad horyzontem o '+hm(x.t)]));
-    PLANETY.filter(q=>!pl.some(x=>x.id===q.id)).slice(0,2)
-      .forEach(q=>z.push([2,q.n,'pod horyzontem przez całą noc']));
+    PLANETY.filter(q=>!pl.some(x=>x.id===q.id)).slice(0,2).forEach(q=>{
+      const dni=planetaWraca(q,m.base,obsP);
+      z.push(dni!=null
+        ? [90+dni,q.n,'wraca '+za(dni)+', '+dat(new Date(m.base.getTime()+dni*dayMs))]
+        : [9990,q.n,'nie wróci w najbliższych miesiącach']);
+    });
   }
   z.push([9999,'Przeloty ISS','wymaga danych na żywo — nie ma ich jeszcze']);
   z.sort((a,b)=>a[0]-b[0]);
