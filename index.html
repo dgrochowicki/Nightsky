@@ -45,8 +45,7 @@
   .strip svg{display:block;width:100%;height:auto}
   .hours{display:flex;margin:7px 0 0;padding:0 1px}
   .hours span{flex:1;font-size:11.5px;color:var(--faint);text-align:center}
-  .strip-legend{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 28px;font-size:11px;color:var(--faint)}
-  .strip-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
+  .strip-legend{margin:12px 0 28px;font-size:11px;color:var(--faint)}
 
   /* ---- panorama nieba ---- */
   .pano{position:relative;border-radius:12px;overflow:hidden;background:#05070E;
@@ -425,7 +424,7 @@ function txtHalo(x,y,col,size,s){
     '" font-family="Instrument Sans" stroke="#05070E" stroke-width="3" stroke-linejoin="round" paint-order="stroke">'+s+'</text>';
 }
 
-const MOONCOL='#95A0B8', TERAZCOL='#E8EBF2';
+const TERAZCOL='#E8EBF2';
 
 function renderStrip(m){
   const T0=new Date((m.zachod||m.base).getTime()-45*6e4);
@@ -445,32 +444,15 @@ function renderStrip(m){
     g+='<rect x="'+x.toFixed(2)+'" y="0" width="'+(W/N+0.6).toFixed(2)+'" height="'+PAS+
        '" fill="'+nieboColor(p.sa)+'"/>';
   });
-  // Pasek księżyca jako jeden ciągły prostokąt, nie N stykających się prostokącików —
-  // te przy skalowaniu SVG zostawiały szczeliny i wyglądały jak kod kreskowy.
-  // Etykieta przyklejona do jego lewego brzegu, nie osobna kreska gdzieś obok.
-  let bandX=null, bandX2=null, bandIl=0, bandN=0;
-  probki.forEach((p,i)=>{
-    if(p.ma>0){
-      const x=i*W/N;
-      if(bandX==null) bandX=x;
-      bandX2=x; bandIl+=p.il; bandN++;
-    }
-  });
-  if(bandX!=null){
-    const szer=bandX2-bandX+W/N+0.6, il=bandIl/bandN;
-    g+='<rect x="'+bandX.toFixed(2)+'" y="'+(PAS-11)+'" width="'+szer.toFixed(2)+
-       '" height="10" fill="'+MOONCOL+'" opacity="'+(0.3+il*0.55).toFixed(2)+'"/>'+
-       '<text x="'+Math.max(4,bandX+3).toFixed(1)+'" y="'+(PAS-16)+
-       '" fill="'+MOONCOL+'" font-size="9.5" font-family="Instrument Sans">księżyc nad horyzontem</text>';
-  }
+  // Księżyc już ma pełną kartę w timeline poniżej (wschód/zachód, % tarczy) —
+  // pasek nie próbuje tego powtarzać osobnym pasmem, tak jak sunhour.app trzyma
+  // fazę i wschód/zachód księżyca w osobnej karcie, nie w tym samym pasku co Słońce.
   const teraz=new Date();
   if(teraz>=T0&&teraz<=T1){
-    const x=(teraz-T0)/(T1-T0)*W;
-    g+='<line x1="'+x.toFixed(1)+'" y1="0" x2="'+x.toFixed(1)+'" y2="'+PAS+
-       '" stroke="'+TERAZCOL+'" stroke-width="1.6"/>'+
-       '<circle cx="'+x.toFixed(1)+'" cy="0" r="2.6" fill="'+TERAZCOL+'"/>'+
-       '<text x="'+(x+4).toFixed(1)+'" y="12" fill="'+TERAZCOL+
-       '" font-size="9.5" font-family="Instrument Sans">teraz</text>';
+    const x=(teraz-T0)/(T1-T0)*W, y=PAS/2;
+    g+='<circle cx="'+x.toFixed(1)+'" cy="'+y+'" r="15" fill="'+TERAZCOL+'" opacity=".12"/>'+
+       '<circle cx="'+x.toFixed(1)+'" cy="'+y+'" r="8" fill="'+TERAZCOL+'" opacity=".28"/>'+
+       '<circle cx="'+x.toFixed(1)+'" cy="'+y+'" r="4" fill="'+TERAZCOL+'"/>';
   }
   g+='</svg>';
   let hh='';
