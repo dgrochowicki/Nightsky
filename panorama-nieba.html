@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Panorama nieba — prototyp</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,300;6..72,400&family=Instrument+Sans:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root{--bg:#111726;--card:#161D2E;--ink:#E8EBF2;--soft:#95A0B8;--faint:#5A6580;--line:#232B3D;
+        --green:#5DE8AB;--amber:#E8B475;--violet:#A794EC;--blue:#7FB8E8}
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{background:var(--bg);color:var(--ink);font-family:"Instrument Sans",system-ui,sans-serif;
+    font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .app{max-width:440px;margin:0 auto;padding:22px 20px 40px}
+  h1{font-family:"Newsreader",Georgia,serif;font-weight:400;font-size:28px;letter-spacing:-.015em;margin:0 0 2px}
+  .sub{margin:0 0 20px;font-size:13px;color:var(--faint)}
+  .pano{position:relative;border-radius:12px;overflow:hidden;background:#05070E;
+    touch-action:none;cursor:crosshair;user-select:none}
+  .pano svg{display:block;width:100%;height:auto}
+  .czas{margin:12px 0 0;font-family:"Newsreader",Georgia,serif;font-size:26px;font-weight:400}
+  .czas span{font-family:"Instrument Sans",sans-serif;font-size:13px;color:var(--faint);margin-left:8px}
+  .note{font-size:13px;color:var(--soft);line-height:1.55;margin-top:20px;padding-top:18px;border-top:1px solid var(--line)}
+  .dev{border-top:1px dashed var(--line);margin-top:30px;padding-top:18px}
+  .dev h2{font-size:12px;font-weight:500;color:var(--faint);margin:0 0 14px}
+  input[type=date]{background:#1C2434;border:1px solid var(--line);color:var(--ink);
+    font:inherit;font-size:12.5px;padding:6px 9px;border-radius:7px}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Panorama nieba</h1>
+  <p class="sub" id="sub">—</p>
+  <div class="pano" id="pano"></div>
+  <p class="czas" id="czas">—<span>przeciągnij po panoramie, żeby zobaczyć inną godzinę</span></p>
+  <p class="note">Pełny obrót kompasu (N–E–S–W–N) na osi poziomej, wysokość nad horyzontem na pionowej.
+  Blade linie to cała droga obiektu przez tę noc; jasne kropki — gdzie jest o wskazanej godzinie.
+  Szczecin, dane liczone lokalnie.</p>
+
+  <div class="dev">
+    <h2>Data</h2>
+    <input type="date" id="date">
+  </div>
+</div>
+
+<script src="astronomy.browser.min.js"></script>
+<script>
+/* ================= astronomia (jak w index.html) ================= */
+const rad=Math.PI/180,dayMs=864e5,J1970=2440588,J2000=2451545,ecl=rad*23.4397;
+const toDays=d=>d.valueOf()/dayMs-0.5+J1970-J2000;
+const RA=(l,b)=>Math.atan2(Math.sin(l)*Math.cos(ecl)-Math.tan(b)*Math.sin(ecl),Math.cos(l));
+const DC=(l,b)=>Math.asin(Math.sin(b)*Math.cos(ecl)+Math.cos(b)*Math.sin(ecl)*Math.sin(l));
+const sid=(d,lw)=>rad*(280.16+360.9856235*d)-lw;
+const LAT=53.4285,LON=14.5528,LW=rad*-LON,PHI=rad*LAT;
+const altOf=(H,dc)=>Math.asin(Math.sin(PHI)*Math.sin(dc)+Math.cos(PHI)*Math.cos(dc)*Math.cos(H))/rad;
+const aziOf=(H,dc)=>(Math.atan2(Math.sin(H),Math.cos(H)*Math.sin(PHI)-Math.tan(dc)*Math.cos(PHI))/rad+180)%360;
+function sunC(d){const M=rad*(357.5291+0.98560028*d);
+  const C=rad*(1.9148*Math.sin(M)+0.02*Math.sin(2*M)+0.0003*Math.sin(3*M));
+  const L=M+C+rad*102.9372+Math.PI;return{dec:DC(L,0),ra:RA(L,0)};}
+function moonC(d){const L=rad*(218.316+13.176396*d),M=rad*(134.963+13.064993*d),F=rad*(93.272+13.229350*d);
+  const l=L+rad*6.289*Math.sin(M),b=rad*5.128*Math.sin(F);
+  return{ra:RA(l,b),dec:DC(l,b),dist:385001-20905*Math.cos(M)};}
+const sunPos=t=>{const d=toDays(t),c=sunC(d),H=sid(d,LW)-c.ra;return{alt:altOf(H,c.dec),azi:aziOf(H,c.dec)};};
+const moonPos=t=>{const d=toDays(t),m=moonC(d),H=sid(d,LW)-m.ra;return{alt:altOf(H,m.dec),azi:aziOf(H,m.dec)};};
+const sunAlt=t=>sunPos(t).alt;
+
+function cross(base,fn,target,dir){
+  const s=new Date(base);s.setHours(12,0,0,0);let p=fn(s);
+  for(let i=1;i<=1080;i++){const t=new Date(s.getTime()+i*6e4),v=fn(t);
+    if(dir<0?(p>target&&v<=target):(p<target&&v>=target))return t;p=v;}
+  return null;}
+const hm=t=>t?String(t.getHours()).padStart(2,'0')+':'+String(t.getMinutes()).padStart(2,'0'):'—';
+
+const PLANETY=[
+  {id:'wenus', n:'Wenus',   b:'Venus',  c:'#E8B475'},
+  {id:'jowisz',n:'Jowisz',  b:'Jupiter',c:'#5DE8AB'},
+  {id:'mars',  n:'Mars',    b:'Mars',   c:'#E8756B'},
+  {id:'saturn',n:'Saturn',  b:'Saturn', c:'#A794EC'},
+  {id:'merkury',n:'Merkury',b:'Mercury',c:'#7FB8E8'}
+];
+const AE=typeof Astronomy!=='undefined';
+function planetPos(body,t,obs){
+  const eq=Astronomy.Equator(body,t,obs,true,true);
+  const h=Astronomy.Horizon(t,obs,eq.ra,eq.dec,'normal');
+  return {alt:h.altitude, azi:h.azimuth};
+}
+
+/* ================= panorama ================= */
+const W=360, H=200, PAD=18;
+function azx(azi){ return azi/360*W; }
+function alty(alt){ return H-PAD-Math.max(0,alt)/90*(H-PAD); }
+
+/* Kolor nieba w wybranej chwili, z wysokości Słońca — ta sama logika co pasek
+   nocy w głównej apce, tylko rozszerzona w górę do pełnego dnia, bo tu Słońce
+   wchodzi wysoko nad horyzont, nie tylko do zmierzchu. */
+const NIEBO_STOPS=[[90,[132,182,232]],[20,[100,150,208]],[6,[62,96,143]],[0,[44,71,112]],
+  [-6,[26,46,79]],[-12,[16,30,54]],[-18,[8,16,32]],[-90,[5,7,14]]];
+function nieboColor(a){
+  for(let i=0;i<NIEBO_STOPS.length-1;i++){
+    const [h1,c1]=NIEBO_STOPS[i],[h2,c2]=NIEBO_STOPS[i+1];
+    if(a<=h1&&a>=h2){ const f=(h1-a)/(h1-h2);
+      return 'rgb('+c1.map((v,k)=>Math.round(v+(c2[k]-v)*f)).join(',')+')'; }
+  }
+  return a>90?'rgb(132,182,232)':'rgb(5,7,14)';
+}
+/* Im jaśniej, tym mniej widać słabszych obiektów — od pełnej widoczności przy
+   Słońcu 6° pod horyzontem do zera przy 6° nad, czyli w paśmie zmierzchu
+   cywilnego, gdzie w realu znikają gwiazdy i planety. */
+function widocznosc(sa){ return sa<=-6?1:sa>=6?0:1-(sa+6)/12; }
+/* Tekst z ciemną obwódką, żeby był czytelny niezależnie od tego, jak jasne
+   jest w danym miejscu niebo pod spodem. */
+function txt(x,y,col,size,s){
+  return '<text x="'+x+'" y="'+y+'" fill="'+col+'" font-size="'+size+
+    '" font-family="Instrument Sans" stroke="#05070E" stroke-width="3" stroke-linejoin="round" paint-order="stroke">'+s+'</text>';
+}
+
+/* Dzieli próbki na podścieżki: przerywa, gdy obiekt schodzi pod horyzont
+   (nowy fragment po drugiej stronie) albo gdy azymut przeskakuje przez 0/360 —
+   inaczej jedna linia przecinałaby cały wykres w poziomie. */
+function sciezka(probki){
+  const cz=[]; let biez=[];
+  for(const p of probki){
+    if(p.alt<0){ if(biez.length>1) cz.push(biez); biez=[]; continue; }
+    if(biez.length){
+      const ostatni=biez[biez.length-1];
+      if(Math.abs(p.azi-ostatni.azi)>180){ if(biez.length>1) cz.push(biez); biez=[]; }
+    }
+    biez.push(p);
+  }
+  if(biez.length>1) cz.push(biez);
+  return cz;
+}
+function rysujSciezke(probki,col){
+  const cz=sciezka(probki);
+  let out='';
+  cz.forEach(seg=>{
+    const d=seg.map((p,i)=>(i===0?'M':'L')+azx(p.azi).toFixed(1)+','+alty(p.alt).toFixed(1)).join(' ');
+    out+='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.3" opacity=".32"/>';
+  });
+  return out;
+}
+/* Żywa kropka: pozycja obiektu w jednej, wybranej chwili (teraz albo tam,
+   gdzie przeciągnięto). Poniżej horyzontu nic nie rysujemy — obiektu po
+   prostu tam nie ma, tak jak nie widać go z balkonu. widocz mnoży nieprzezroczystość:
+   przy jasnym niebie słabsze obiekty gasną, tak jak naprawdę. */
+function rysujKropke(pos,col,etykieta,widocz){
+  if(pos.alt<0||widocz<=0.03) return '';
+  const x=azx(pos.azi), y=alty(pos.alt);
+  return '<g opacity="'+widocz.toFixed(2)+'"><circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3.4" fill="'+col+'"/>'+
+    '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="6.5" fill="'+col+'" opacity=".2"/>'+
+    txt(x+6,y+3.5,col,10,etykieta)+'</g>';
+}
+
+let T0,T1,SCRUB=null;
+const obsAE=AE?new Astronomy.Observer(LAT,LON,0):null;
+
+function build(){
+  const base=new Date(document.getElementById('date').value+'T12:00:00');
+  const zachod=cross(base,sunAlt,-0.833,-1)||new Date(base.getFullYear(),base.getMonth(),base.getDate(),19,0);
+  const wschod=cross(base,sunAlt,-0.833,1)||new Date(zachod.getTime()+10*36e5);
+  T0=new Date(zachod.getTime()-30*6e4); T1=new Date(wschod.getTime()+30*6e4);
+  const N=140;
+
+  // domyślnie pokazujemy "teraz", jeśli ta noc obejmuje bieżący moment —
+  // inaczej środek nocy, żeby od razu było na co patrzeć
+  const teraz=new Date();
+  const frakcja = SCRUB!=null ? SCRUB
+    : (teraz>=T0&&teraz<=T1) ? (teraz-T0)/(T1-T0) : 0.5;
+  const tWyb=new Date(T0.getTime()+(T1-T0)*frakcja);
+
+  document.getElementById('sub').textContent =
+    'Szczecin · '+base.toLocaleDateString('pl-PL',{weekday:'long',day:'numeric',month:'long'})+
+    ' · zachód '+hm(zachod)+' do wschodu '+hm(wschod);
+  document.getElementById('czas').innerHTML = hm(tWyb)+
+    '<span>'+(SCRUB==null && teraz>=T0 && teraz<=T1 ? 'teraz — przeciągnij po panoramie, żeby zobaczyć inną godzinę' : 'przeciągnij po panoramie, żeby zobaczyć inną godzinę')+'</span>';
+
+  const probkiCzas=[]; for(let i=0;i<=N;i++) probkiCzas.push(new Date(T0.getTime()+(T1-T0)*i/N));
+  const saWyb=sunPos(tWyb).alt, widocz=widocznosc(saWyb);
+
+  let g='<svg viewBox="0 0 '+W+' '+H+'" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">';
+  // tło = kolor nieba o wybranej godzinie — im wyżej Słońce, tym jaśniej
+  g+='<rect x="0" y="0" width="'+W+'" height="'+H+'" fill="'+nieboColor(saWyb)+'"/>';
+
+  // linie kompasu co 45°
+  const KIER=['N','NE','E','SE','S','SW','W','NW','N'];
+  for(let k=0;k<=8;k++){
+    const x=k*W/8;
+    g+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+(H-PAD)+'" stroke="#ffffff" stroke-width="1" opacity=".12"/>'+
+       txt(x+3,H-6,'#C9D4E8',9,KIER[k]);
+  }
+  // horyzont
+  g+='<line x1="0" y1="'+(H-PAD)+'" x2="'+W+'" y2="'+(H-PAD)+'" stroke="#ffffff" stroke-width="1.2" opacity=".35"/>';
+  // linie co 30° wysokości
+  [30,60].forEach(a=>{
+    const y=alty(a);
+    g+='<line x1="0" y1="'+y+'" x2="'+W+'" y2="'+y+'" stroke="#ffffff" stroke-width="1" opacity=".08"/>'+
+       txt(2,y-2,'#C9D4E8',8,a+'°');
+  });
+
+  // blade ścieżki całej nocy — kontekst, niezależnie od jasności w danej chwili
+  g+=rysujSciezke(probkiCzas.map(t=>({...sunPos(t)})),'#E8B475');
+  g+=rysujSciezke(probkiCzas.map(t=>({...moonPos(t)})),'#C9D4E8');
+  if(AE) PLANETY.forEach(pl=>{
+    const body=Astronomy.Body[pl.b];
+    g+=rysujSciezke(probkiCzas.map(t=>planetPos(body,t,obsAE)),pl.c);
+  });
+
+  // jasne kropki — pozycja o wybranej godzinie. Słońce zawsze pełną mocą
+  // (to ono rozjaśnia niebo), reszta gaśnie w jasności tak jak naprawdę.
+  g+=rysujKropke(sunPos(tWyb),'#E8B475','Słońce',1);
+  g+=rysujKropke(moonPos(tWyb),'#C9D4E8','Księżyc',widocz);
+  if(AE) PLANETY.forEach(pl=>{
+    g+=rysujKropke(planetPos(Astronomy.Body[pl.b],tWyb,obsAE),pl.c,pl.n,widocz);
+  });
+
+  g+='</svg>';
+  document.getElementById('pano').innerHTML=g;
+}
+
+/* przeciąganie bezpośrednio po panoramie — jak w pasek-nocy.html, bez suwaka */
+const pano=document.getElementById('pano');
+function pozX(ev){
+  const r=pano.getBoundingClientRect();
+  const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left;
+  return Math.max(0,Math.min(1,x/r.width));
+}
+let drag=false;
+pano.addEventListener('pointerdown',ev=>{drag=true;SCRUB=pozX(ev);build();ev.preventDefault();});
+pano.addEventListener('pointermove',ev=>{if(!drag)return;SCRUB=pozX(ev);build();ev.preventDefault();});
+window.addEventListener('pointerup',()=>{drag=false;});
+
+const t=new Date();
+document.getElementById('date').value=t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0')+'-'+String(t.getDate()).padStart(2,'0');
+document.getElementById('date').addEventListener('input',()=>{SCRUB=null;build();});
+build();
+</script>
+</body>
+</html>

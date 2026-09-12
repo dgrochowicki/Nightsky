@@ -48,6 +48,13 @@
   .strip-legend{display:flex;gap:12px;flex-wrap:wrap;margin:12px 0 28px;font-size:11px;color:var(--faint)}
   .strip-legend i{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px;vertical-align:0}
 
+  /* ---- panorama nieba ---- */
+  .pano{position:relative;border-radius:12px;overflow:hidden;background:#05070E;
+    touch-action:none;cursor:crosshair;user-select:none}
+  .pano svg{display:block;width:100%;height:auto}
+  .czas{margin:14px 0 0;font-family:"Newsreader",Georgia,serif;font-size:26px;font-weight:400}
+  .czas span{font-family:"Instrument Sans",sans-serif;font-size:12.5px;color:var(--faint);margin-left:8px}
+
   /* ---- timeline ---- */
   .tl{position:relative;padding-left:62px}
   .tl::before{content:"";position:absolute;left:53px;top:12px;bottom:14px;width:1px;background:var(--line)}
@@ -198,6 +205,9 @@ function moonC(d){const L=rad*(218.316+13.176396*d),M=rad*(134.963+13.064993*d),
 const sunAlt=t=>{const d=toDays(t),c=sunC(d);return altOf(sid(d,LW)-c.ra,c.dec);};
 const sunAzi=t=>{const d=toDays(t),c=sunC(d);return aziOf(sid(d,LW)-c.ra,c.dec);};
 const moonAlt=t=>{const d=toDays(t),m=moonC(d);return altOf(sid(d,LW)-m.ra,m.dec);};
+const moonAzi=t=>{const d=toDays(t),m=moonC(d);return aziOf(sid(d,LW)-m.ra,m.dec);};
+const sunPos=t=>({alt:sunAlt(t),azi:sunAzi(t)});
+const moonPos=t=>({alt:moonAlt(t),azi:moonAzi(t)});
 function moonIllum(t){const d=toDays(t),m=moonC(d),s=sunC(d),sd=149598000;
   const ph=Math.acos(Math.sin(s.dec)*Math.sin(m.dec)+Math.cos(s.dec)*Math.cos(m.dec)*Math.cos(s.ra-m.ra));
   return (1+Math.cos(Math.atan2(sd*Math.sin(ph),m.dist-sd*Math.cos(ph))))/2;}
@@ -293,11 +303,11 @@ const facts=a=>'<div class="facts">'+a.map(([k,v])=>
    na dach — i lepiej to powiedzieć wprost, niż ukryć planetę pod progiem. */
 
 const PLANETY=[
-  {id:'wenus', n:'Wenus',   b:'Venus'},
-  {id:'jowisz',n:'Jowisz',  b:'Jupiter'},
-  {id:'mars',  n:'Mars',    b:'Mars'},
-  {id:'saturn',n:'Saturn',  b:'Saturn'},
-  {id:'merkury',n:'Merkury',b:'Mercury'}
+  {id:'wenus', n:'Wenus',   b:'Venus',  c:'#E8B475'},
+  {id:'jowisz',n:'Jowisz',  b:'Jupiter',c:'#5DE8AB'},
+  {id:'mars',  n:'Mars',    b:'Mars',   c:'#E8756B'},
+  {id:'saturn',n:'Saturn',  b:'Saturn', c:'#A794EC'},
+  {id:'merkury',n:'Merkury',b:'Mercury',c:'#7FB8E8'}
 ];
 const AE = typeof Astronomy!=='undefined';
 
@@ -392,7 +402,7 @@ function planety(m){
 /* Kształt nocy jako obrazek zamiast tabelki: kolor nieba z wysokości Słońca,
    zasłona chmur, pasek obecności księżyca. Jedna wartość chmur na całą noc —
    tyle mamy z jednego zapytania o pogodę, więc pasek jej nie zmyśla. */
-const STOPS=[[ 6,[ 62, 96,143]],[ 0,[ 44, 71,112]],[ -6,[ 26, 46, 79]],
+const STOPS=[[90,[132,182,232]],[20,[100,150,208]],[ 6,[ 62, 96,143]],[ 0,[ 44, 71,112]],[ -6,[ 26, 46, 79]],
              [-12,[ 16, 30, 54]],[-18,[  8, 16, 32]],[-90,[  5,  7, 14]]];
 function nieboColor(a){
   for(let i=0;i<STOPS.length-1;i++){
@@ -402,7 +412,17 @@ function nieboColor(a){
       return 'rgb('+c1.map((v,k)=>Math.round(v+(c2[k]-v)*f)).join(',')+')';
     }
   }
-  return a>6?'rgb(62,96,143)':'rgb(5,7,14)';
+  return a>90?'rgb(132,182,232)':'rgb(5,7,14)';
+}
+/* Im wyżej Słońce, tym mniej widać słabszych obiektów — od pełnej widoczności
+   przy -6° do zera przy +6°, czyli w paśmie zmierzchu cywilnego, gdzie w realu
+   znikają gwiazdy i planety. */
+function widocznosc(sa){ return sa<=-6?1:sa>=6?0:1-(sa+6)/12; }
+/* Tekst z ciemną obwódką — czytelny niezależnie od tego, jak jasne jest w danym
+   miejscu niebo pod spodem (przydaje się, gdy tło samo jest zmienne). */
+function txtHalo(x,y,col,size,s){
+  return '<text x="'+x+'" y="'+y+'" fill="'+col+'" font-size="'+size+
+    '" font-family="Instrument Sans" stroke="#05070E" stroke-width="3" stroke-linejoin="round" paint-order="stroke">'+s+'</text>';
 }
 
 const MOONCOL='#95A0B8', TERAZCOL='#E8EBF2';
@@ -530,6 +550,7 @@ function renderList(m){
       '</span><em>›</em></h3><p>'+x.p+'</p></span></button>').join('')+
     '</div><div class="zzz"><h2>Dziś śpi</h2>'+
     z.map(([,a,b])=>'<div class="zrow"><b>'+a+'</b><span>'+b+'</span></div>').join('')+'</div>'+
+    '<button class="yearlink" id="topano"><span>Panorama nieba<small>Gdzie i kiedy dziś w nocy</small></span><em>›</em></button>'+
     '<button class="yearlink" id="toyear"><span>Cały rok<small>Co wraca co roku i kiedy</small></span><em>\u203A</em></button></div>';
 }
 
@@ -738,6 +759,130 @@ function renderYear(m){
 }
 
 
+/* ================= panorama nieba ================= */
+/* Timeline mówi "o 22:17", ale nie mówi, czy w ogóle zobaczysz to zza
+   własnego domu. Tu azymut (kompas, 0–360°) na osi poziomej, wysokość nad
+   horyzontem na pionowej — każdy obiekt zostawia łuk, bo w ciągu nocy zmienia
+   się i kierunek, i wysokość naraz. Blade linie to cała droga przez noc
+   (kontekst), jasne kropki — gdzie obiekt jest o wybranej godzinie. Domyślnie
+   "teraz"; przeciągnięcie po panoramie (nie osobny suwak) przesuwa czas. */
+const PW=360, PH=200, PPAD=18;
+const pazx=azi=>azi/360*PW;
+const palty=alt=>PH-PPAD-Math.max(0,alt)/90*(PH-PPAD);
+
+function panoSciezka(probki){
+  const cz=[]; let biez=[];
+  for(const p of probki){
+    if(p.alt<0){ if(biez.length>1) cz.push(biez); biez=[]; continue; }
+    if(biez.length){
+      const ostatni=biez[biez.length-1];
+      if(Math.abs(p.azi-ostatni.azi)>180){ if(biez.length>1) cz.push(biez); biez=[]; }
+    }
+    biez.push(p);
+  }
+  if(biez.length>1) cz.push(biez);
+  return cz;
+}
+function panoRysujSciezke(probki,col){
+  let out='';
+  panoSciezka(probki).forEach(seg=>{
+    const d=seg.map((p,i)=>(i===0?'M':'L')+pazx(p.azi).toFixed(1)+','+palty(p.alt).toFixed(1)).join(' ');
+    out+='<path d="'+d+'" fill="none" stroke="'+col+'" stroke-width="1.3" opacity=".32"/>';
+  });
+  return out;
+}
+function panoRysujKropke(pos,col,etykieta,widocz){
+  if(pos.alt<0||widocz<=0.03) return '';
+  const x=pazx(pos.azi), y=palty(pos.alt);
+  return '<g opacity="'+widocz.toFixed(2)+'"><circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="3.4" fill="'+col+'"/>'+
+    '<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="6.5" fill="'+col+'" opacity=".2"/>'+
+    txtHalo(x+6,y+3.5,col,10,etykieta)+'</g>';
+}
+
+let PANO_SCRUB=null, PANO_LAST_KEY=null;
+
+function panoramaHtml(m){
+  const dkey=PLACE+'|'+m.base.toDateString();
+  if(dkey!==PANO_LAST_KEY){ PANO_SCRUB=null; PANO_LAST_KEY=dkey; }
+
+  const zachod=m.zachod||new Date(m.base.getTime()+7*36e5);
+  const wschod=cross(m.base,sunAlt,-0.833,1)||new Date(zachod.getTime()+10*36e5);
+  const T0=new Date(zachod.getTime()-30*6e4), T1=new Date(wschod.getTime()+30*6e4);
+  const N=140;
+
+  const teraz=new Date();
+  const frakcja = PANO_SCRUB!=null ? PANO_SCRUB
+    : (teraz>=T0&&teraz<=T1) ? (teraz-T0)/(T1-T0) : 0.5;
+  const tWyb=new Date(T0.getTime()+(T1-T0)*frakcja);
+  const saWyb=sunAlt(tWyb), widocz=widocznosc(saWyb);
+
+  const probkiCzas=[]; for(let i=0;i<=N;i++) probkiCzas.push(new Date(T0.getTime()+(T1-T0)*i/N));
+
+  let g='<svg viewBox="0 0 '+PW+' '+PH+'" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none">';
+  g+='<rect x="0" y="0" width="'+PW+'" height="'+PH+'" fill="'+nieboColor(saWyb)+'"/>';
+
+  const KIER=['N','NE','E','SE','S','SW','W','NW','N'];
+  for(let k=0;k<=8;k++){
+    const x=k*PW/8;
+    g+='<line x1="'+x+'" y1="0" x2="'+x+'" y2="'+(PH-PPAD)+'" stroke="#ffffff" stroke-width="1" opacity=".12"/>'+
+       txtHalo(x+3,PH-6,'#C9D4E8',9,KIER[k]);
+  }
+  g+='<line x1="0" y1="'+(PH-PPAD)+'" x2="'+PW+'" y2="'+(PH-PPAD)+'" stroke="#ffffff" stroke-width="1.2" opacity=".35"/>';
+  [30,60].forEach(a=>{
+    const y=palty(a);
+    g+='<line x1="0" y1="'+y+'" x2="'+PW+'" y2="'+y+'" stroke="#ffffff" stroke-width="1" opacity=".08"/>'+
+       txtHalo(2,y-2,'#C9D4E8',8,a+'°');
+  });
+
+  g+=panoRysujSciezke(probkiCzas.map(sunPos),'#E8B475');
+  g+=panoRysujSciezke(probkiCzas.map(moonPos),'#C9D4E8');
+  const obsP=AE?new Astronomy.Observer(LAT,LON,0):null;
+  if(AE) PLANETY.forEach(pl=>{
+    const body=Astronomy.Body[pl.b];
+    g+=panoRysujSciezke(probkiCzas.map(t=>pozycja(body,t,obsP)),pl.c);
+  });
+
+  g+=panoRysujKropke(sunPos(tWyb),'#E8B475','Słońce',1);
+  g+=panoRysujKropke(moonPos(tWyb),'#C9D4E8','Księżyc',widocz);
+  if(AE) PLANETY.forEach(pl=>{
+    g+=panoRysujKropke(pozycja(Astronomy.Body[pl.b],tWyb,obsP),pl.c,pl.n,widocz);
+  });
+  g+='</svg>';
+
+  const domyslnie = PANO_SCRUB==null && teraz>=T0 && teraz<=T1;
+  return {svg:g, czas:hm(tWyb), etyk:domyslnie?'teraz — przeciągnij po panoramie, żeby zobaczyć inną godzinę':'przeciągnij po panoramie, żeby zobaczyć inną godzinę'};
+}
+
+function renderPanorama(m){
+  const p=panoramaHtml(m);
+  return '<div class="fade"><button class="back" id="back">‹ Wróć do nocy</button>'+
+    '<h1 class="d-h">Panorama nieba</h1>'+
+    '<p class="d-when">'+PLACE+' · pełny obrót kompasu, N–E–S–W–N</p>'+
+    '<div class="pano" id="pano">'+p.svg+'</div>'+
+    '<p class="czas" id="czas">'+p.czas+'<span id="czas-etyk">'+p.etyk+'</span></p>'+
+    '<p class="src">Blade linie to cała droga obiektu przez tę noc; jasna kropka — gdzie jest o wskazanej godzinie. '+
+    'Im wyżej Słońce, tym jaśniejsze niebo i tym mniej widać słabszych obiektów, tak jak naprawdę.</p></div>';
+}
+
+function wirePanorama(m){
+  const pano=document.getElementById('pano'), czas=document.getElementById('czas');
+  const odswiez=()=>{
+    const p=panoramaHtml(m);
+    pano.innerHTML=p.svg;
+    czas.innerHTML=p.czas+'<span>'+p.etyk+'</span>';
+  };
+  const pozX=ev=>{
+    const r=pano.getBoundingClientRect();
+    const x=(ev.touches?ev.touches[0].clientX:ev.clientX)-r.left;
+    return Math.max(0,Math.min(1,x/r.width));
+  };
+  let drag=false;
+  pano.addEventListener('pointerdown',ev=>{drag=true;PANO_SCRUB=pozX(ev);odswiez();ev.preventDefault();});
+  pano.addEventListener('pointermove',ev=>{if(!drag)return;PANO_SCRUB=pozX(ev);odswiez();ev.preventDefault();});
+  window.addEventListener('pointerup',()=>{drag=false;});
+}
+
+
 /* ================= dane na żywo ================= */
 /* Dwie rzeczy wymagają sieci: aktywność geomagnetyczna i chmury.
    Reszta liczy się lokalnie, więc strona działa także wtedy, gdy to padnie.
@@ -910,16 +1055,20 @@ function draw(){
   document.getElementById('lo-o').textContent=m.lo+'%';
   document.getElementById('hi-o').textContent=m.hi+'%';
   const v=document.getElementById('view');
-  v.innerHTML = S.view==='list' ? renderList(m) : S.view==='year' ? renderYear(m) : renderDetail(S.id,m);
+  v.innerHTML = S.view==='list' ? renderList(m) : S.view==='year' ? renderYear(m)
+    : S.view==='panorama' ? renderPanorama(m) : renderDetail(S.id,m);
   if(S.view==='list'){
     v.querySelectorAll('.ev').forEach(b=>b.addEventListener('click',()=>{
       S={view:'detail',id:b.dataset.id}; draw(); window.scrollTo(0,0);}));
     document.getElementById('toyear').addEventListener('click',()=>{
       S={view:'year',id:null}; draw(); window.scrollTo(0,0);});
+    document.getElementById('topano').addEventListener('click',()=>{
+      S={view:'panorama',id:null}; draw(); window.scrollTo(0,0);});
     document.getElementById('loc').addEventListener('click',openLocBox);
   } else {
     document.getElementById('back').addEventListener('click',()=>{
       S={view:'list',id:null}; draw(); window.scrollTo(0,0);});
+    if(S.view==='panorama') wirePanorama(m);
   }
 }
 /* Parametry w adresie wymuszają wartości i odsłaniają panel testowy:
