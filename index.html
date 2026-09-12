@@ -425,19 +425,24 @@ function renderStrip(m){
     g+='<rect x="'+x.toFixed(2)+'" y="0" width="'+(W/N+0.6).toFixed(2)+'" height="'+PAS+
        '" fill="'+nieboColor(p.sa)+'"/>';
   });
-  // Pasek księżyca z etykietą przyklejoną do jego własnego lewego brzegu —
-  // nie osobna kreska gdzieś obok, tylko podpis tuż nad tym, co opisuje.
-  let bandX=null;
+  // Pasek księżyca jako jeden ciągły prostokąt, nie N stykających się prostokącików —
+  // te przy skalowaniu SVG zostawiały szczeliny i wyglądały jak kod kreskowy.
+  // Etykieta przyklejona do jego lewego brzegu, nie osobna kreska gdzieś obok.
+  let bandX=null, bandX2=null, bandIl=0, bandN=0;
   probki.forEach((p,i)=>{
     if(p.ma>0){
       const x=i*W/N;
       if(bandX==null) bandX=x;
-      g+='<rect x="'+x.toFixed(2)+'" y="'+(PAS-11)+'" width="'+(W/N+0.6).toFixed(2)+
-         '" height="10" fill="'+MOONCOL+'" opacity="'+(0.3+p.il*0.55).toFixed(2)+'"/>';
+      bandX2=x; bandIl+=p.il; bandN++;
     }
   });
-  if(bandX!=null) g+='<text x="'+Math.max(4,bandX+3).toFixed(1)+'" y="'+(PAS-16)+
-    '" fill="'+MOONCOL+'" font-size="9.5" font-family="Instrument Sans">księżyc nad horyzontem</text>';
+  if(bandX!=null){
+    const szer=bandX2-bandX+W/N+0.6, il=bandIl/bandN;
+    g+='<rect x="'+bandX.toFixed(2)+'" y="'+(PAS-11)+'" width="'+szer.toFixed(2)+
+       '" height="10" fill="'+MOONCOL+'" opacity="'+(0.3+il*0.55).toFixed(2)+'"/>'+
+       '<text x="'+Math.max(4,bandX+3).toFixed(1)+'" y="'+(PAS-16)+
+       '" fill="'+MOONCOL+'" font-size="9.5" font-family="Instrument Sans">księżyc nad horyzontem</text>';
+  }
   const teraz=new Date();
   if(teraz>=T0&&teraz<=T1){
     const x=(teraz-T0)/(T1-T0)*W;
