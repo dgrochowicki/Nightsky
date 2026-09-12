@@ -457,8 +457,14 @@ function renderStrip(m){
   g+='</svg>';
   let hh='';
   for(let i=0;i<7;i++) hh+='<span>'+hm(new Date(T0.getTime()+(T1-T0)*i/6))+'</span>';
+  // Bez kropki "teraz" (bo to jeszcze dzień albo ta noc już minęła) pasek
+  // wygląda na pusty/zepsuty — dopisujemy wprost, co widać i kiedy wrócić.
+  const kontekst = teraz<T0 ? 'jeszcze dzień · noc zaczyna się o '+hm(T0)
+    : teraz>T1 ? 'ta noc już minęła'
+    : null;
   return '<div class="strip">'+g+'</div><div class="hours">'+hh+'</div>'+
-    '<div class="strip-legend"><span>chmury '+m.lo+'% / '+m.hi+'%</span></div>';
+    '<div class="strip-legend"><span>chmury '+m.lo+'% / '+m.hi+'%</span>'+
+    (kontekst?'<span> · '+kontekst+'</span>':'')+'</div>';
 }
 
 /* ================= lista ================= */
